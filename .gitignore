@@ -1,0 +1,7 @@
+/target
+
+# editor files
+/.vscode
+
+# others
+/**/vk.xml
