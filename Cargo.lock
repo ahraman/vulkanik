@@ -99,6 +99,7 @@ name = "genvk-parse"
 version = "0.1.0"
 dependencies = [
  "thiserror",
+ "xml",
 ]
 
 [[package]]
@@ -198,3 +199,9 @@ checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
 dependencies = [
  "windows-link",
 ]
+
+[[package]]
+name = "xml"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2df5825faced2427b2da74d9100f1e2e93c533fff063506a81ede1cf517b2e7e"
