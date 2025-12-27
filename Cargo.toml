@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = []
+members = ["bindgen/*"]
 
 [workspace.package]
 edition = "2024"
