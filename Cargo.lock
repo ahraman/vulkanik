@@ -90,6 +90,14 @@ name = "genvk"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "genvk-parse",
+ "thiserror",
+]
+
+[[package]]
+name = "genvk-parse"
+version = "0.1.0"
+dependencies = [
  "thiserror",
 ]
 
