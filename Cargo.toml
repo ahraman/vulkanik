@@ -6,6 +6,9 @@ members = ["bindgen/*"]
 edition = "2024"
 rust-version = "1.92.0"
 
+[workspace.dependencies]
+thiserror = "2.0.17"
+
 [package]
 name = "vulkanik"
 version = "0.1.0"
