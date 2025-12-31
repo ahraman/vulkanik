@@ -4,7 +4,6 @@ use xml::common::{Position, TextPosition};
 pub enum Error {
     #[error("duplicate unique tag `<{0}>`")]
     Duplicate(String),
-
     #[error("unexpected text \"{0}\"")]
     Text(String),
     #[error("unknown tag start `<{0}>")]
@@ -15,6 +14,8 @@ pub enum Error {
     UnexpectedStart(String, String),
     #[error("unexpected tag end `<{0}>`, expected `<{1}>`")]
     UnexpectedEnd(String, String),
+    #[error("element `<{0}>` missing required attribute `{1}`")]
+    MissingAttr(String, String),
     #[error("unexpected end of file")]
     Eof,
 
