@@ -1,19 +1,123 @@
 use std::{collections::HashMap, io::Read};
 
-use xml::EventReader;
+use xml::{EventReader, common::Position, reader::XmlEvent};
 
-use crate::Error;
+use crate::{Error, IntoMap};
 
-pub struct Registry {}
+#[derive(Debug)]
+pub struct Comment(pub String);
 
-impl Registry {
-    pub(crate) const TAG: &'static str = "registry";
+impl Comment {
+    pub(crate) const TAG: &'static str = "comment";
 
-    pub(crate) fn parse_xml_element<R: Read>(
+    pub fn parse_xml_element<R: Read>(
         reader: &mut EventReader<R>,
         element: String,
         attributes: HashMap<String, String>,
     ) -> Result<Self, Error> {
-        todo!()
+        if element != Self::TAG {
+            return Err(Error::UnexpectedStart(element, Self::TAG.to_string()));
+        }
+
+        if !attributes.is_empty() {
+            println!(
+                "[warning]: tag `<{element}> at {} has unrecognized attributes",
+                reader.position()
+            );
+        }
+
+        let mut content = String::new();
+        loop {
+            match reader.next()? {
+                XmlEvent::StartElement { name, .. } => {
+                    return Err(Error::UnknownStart(name.local_name));
+                }
+                XmlEvent::EndElement { name } => {
+                    if name.local_name == Self::TAG {
+                        break;
+                    } else {
+                        return Err(Error::UnexpectedEnd(name.local_name, Self::TAG.to_string()));
+                    }
+                }
+                XmlEvent::Characters(text) => content += text.as_str(),
+                XmlEvent::EndDocument => return Err(Error::Eof),
+                _ => {}
+            }
+        }
+
+        Ok(Self(content))
+    }
+}
+
+#[derive(Debug)]
+pub struct Registry {
+    pub comment: Option<String>,
+
+    pub items: Vec<RegistryItem>,
+}
+
+impl Registry {
+    pub(crate) const TAG: &'static str = "registry";
+
+    pub fn parse_xml_element<R: Read>(
+        reader: &mut EventReader<R>,
+        element: String,
+        mut attributes: HashMap<String, String>,
+    ) -> Result<Self, Error> {
+        if element != Self::TAG {
+            return Err(Error::UnexpectedStart(element, Self::TAG.to_string()));
+        }
+
+        let comment = attributes.remove("comment");
+
+        if !attributes.is_empty() {
+            println!(
+                "[warning]: tag `<{element}> at {} has unrecognized attributes",
+                reader.position()
+            );
+        }
+
+        let mut items = Vec::new();
+        loop {
+            match reader.next()? {
+                XmlEvent::StartElement {
+                    name, attributes, ..
+                } => items.push(RegistryItem::parse_xml_element(
+                    reader,
+                    name.local_name,
+                    attributes.into_map(),
+                )?),
+                XmlEvent::EndElement { name } => {
+                    if name.local_name == Self::TAG {
+                        break;
+                    } else {
+                        return Err(Error::UnexpectedEnd(name.local_name, Self::TAG.to_string()));
+                    }
+                }
+                XmlEvent::Characters(text) => return Err(Error::Text(text)),
+                XmlEvent::EndDocument => return Err(Error::Eof),
+                _ => {}
+            }
+        }
+
+        Ok(Self { comment, items })
+    }
+}
+
+#[derive(Debug)]
+pub enum RegistryItem {
+    Comment(Comment),
+}
+
+impl RegistryItem {
+    pub fn parse_xml_element<R: Read>(
+        reader: &mut EventReader<R>,
+        element: String,
+        attributes: HashMap<String, String>,
+    ) -> Result<Self, Error> {
+        Ok(match element.as_str() {
+            Comment::TAG => Self::Comment(Comment::parse_xml_element(reader, element, attributes)?),
+            _ => return Err(Error::UnknownStart(element)),
+        })
     }
 }
