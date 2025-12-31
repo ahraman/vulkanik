@@ -34,7 +34,7 @@ fn parse_xml_inner<R: Read>(reader: &mut EventReader<R>) -> Result<Registry, Err
                 }
             }
             XmlEvent::EndDocument => return registry.ok_or_else(|| Error::Eof),
-            XmlEvent::EndElement { name } => return Err(Error::End(name.local_name)),
+            XmlEvent::EndElement { name } => return Err(Error::UnknownEnd(name.local_name)),
             XmlEvent::Characters(text) => return Err(Error::Text(text)),
             _ => {}
         }

@@ -7,10 +7,14 @@ pub enum Error {
 
     #[error("unexpected text \"{0}\"")]
     Text(String),
-    #[error("unexpected tag start `<{0}>")]
-    Start(String),
-    #[error("unexpected tag end `</{0}>`")]
-    End(String),
+    #[error("unknown tag start `<{0}>")]
+    UnknownStart(String),
+    #[error("unknown tag end `</{0}>`")]
+    UnknownEnd(String),
+    #[error("unexpected tag start `<{0}>`, expected `<{1}>`")]
+    UnexpectedStart(String, String),
+    #[error("unexpected tag end `<{0}>`, expected `<{1}>`")]
+    UnexpectedEnd(String, String),
     #[error("unexpected end of file")]
     Eof,
 
