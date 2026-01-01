@@ -3,7 +3,7 @@ pub mod registry;
 
 use std::{collections::HashMap, io::Read};
 
-use xml::{EventReader, attribute::OwnedAttribute, reader::XmlEvent};
+use xml::{EventReader, attribute::OwnedAttribute, common::Position, reader::XmlEvent};
 
 pub use crate::{
     error::{Error, TextError},
@@ -50,5 +50,29 @@ impl IntoMap for Vec<OwnedAttribute> {
         self.into_iter()
             .map(|attr| (attr.name.local_name, attr.value))
             .collect()
+    }
+}
+
+trait MapExt {
+    fn remove_required(&mut self, element: &str, attr: &str) -> Result<String, Error>;
+
+    fn check_empty(&self, element: &str, pos: &impl Position) -> Result<(), Error>;
+}
+
+impl MapExt for HashMap<String, String> {
+    fn remove_required(&mut self, element: &str, attr: &str) -> Result<String, Error> {
+        self.remove(attr)
+            .ok_or_else(|| Error::MissingAttr(element.to_string(), attr.to_string()))
+    }
+
+    fn check_empty(&self, element: &str, pos: &impl Position) -> Result<(), Error> {
+        if !self.is_empty() {
+            println!(
+                "[warning]: tag `<{element}> at {} has unrecognized attributes",
+                pos.position()
+            );
+        }
+
+        Ok(())
     }
 }
