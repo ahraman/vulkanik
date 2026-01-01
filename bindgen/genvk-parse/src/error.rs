@@ -16,6 +16,8 @@ pub enum Error {
     UnexpectedEnd(String, String),
     #[error("element `<{0}>` missing required attribute `{1}`")]
     MissingAttr(String, String),
+    #[error("element `<{0}>` has invalid attribute `{1} = {2}`")]
+    InvalidAttr(String, String, String),
     #[error("unexpected end of file")]
     Eof,
 
