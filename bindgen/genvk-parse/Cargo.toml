@@ -7,3 +7,5 @@ rust-version.workspace = true
 [dependencies]
 thiserror.workspace = true
 xml = "1.2.0"
+
+genvk-macros = { path = "../genvk-macros" }
