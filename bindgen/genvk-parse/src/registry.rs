@@ -491,6 +491,8 @@ pub enum TypeKind {
     External(ExternalType),
     Include(IncludeType),
     Define(DefineType),
+    Base(BaseType),
+    Bitmask(BitmaskType),
 }
 
 impl TypeKind {
@@ -507,6 +509,12 @@ impl TypeKind {
                     }
                     "define" => {
                         Self::Define(DefineType::parse_xml_element(reader, element, attributes)?)
+                    }
+                    "basetype" => {
+                        Self::Base(BaseType::parse_xml_element(reader, element, attributes)?)
+                    }
+                    "bitmask" => {
+                        Self::Bitmask(BitmaskType::parse_xml_element(reader, element, attributes)?)
                     }
                     _ => {
                         return Err(Error::InvalidAttr(
@@ -643,5 +651,158 @@ impl DefineType {
         }
 
         Ok(Self { name, content })
+    }
+}
+
+#[derive(Debug)]
+pub struct BaseType {
+    pub content: Vec<Content>,
+}
+
+impl BaseType {
+    fn parse_xml_element<R: Read>(
+        reader: &mut EventReader<R>,
+        element: String,
+        attributes: HashMap<String, String>,
+    ) -> Result<Self, Error> {
+        attributes.check_empty(&element, reader)?;
+
+        let mut content = Vec::new();
+        loop {
+            match reader.next()? {
+                XmlEvent::StartElement {
+                    name, attributes, ..
+                } => {
+                    content.push(Content::parse_xml_element(
+                        reader,
+                        name.local_name,
+                        attributes.into_map(),
+                    )?);
+                }
+                XmlEvent::EndElement { name } => {
+                    if name.local_name == element {
+                        break;
+                    } else {
+                        return Err(Error::UnexpectedEnd(name.local_name, element));
+                    }
+                }
+                XmlEvent::Characters(text) => content.push(Content::Characters(text)),
+                XmlEvent::EndDocument => return Err(Error::Eof),
+                _ => {}
+            }
+        }
+
+        Ok(Self { content })
+    }
+}
+
+#[derive(Debug)]
+pub enum BitmaskType {
+    Decl(BitmaskTypeDecl),
+    Alias(BitmaskTypeAlias),
+}
+
+impl BitmaskType {
+    pub fn parse_xml_element<R: Read>(
+        reader: &mut EventReader<R>,
+        element: String,
+        attributes: HashMap<String, String>,
+    ) -> Result<Self, Error> {
+        Ok(if attributes.contains_key("alias") {
+            Self::Alias(BitmaskTypeAlias::parse_xml_element(
+                reader, element, attributes,
+            )?)
+        } else {
+            Self::Decl(BitmaskTypeDecl::parse_xml_element(
+                reader, element, attributes,
+            )?)
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct BitmaskTypeDecl {
+    pub bit_values: Option<String>,
+
+    pub content: Vec<Content>,
+}
+
+impl BitmaskTypeDecl {
+    fn parse_xml_element<R: Read>(
+        reader: &mut EventReader<R>,
+        element: String,
+        mut attributes: HashMap<String, String>,
+    ) -> Result<Self, Error> {
+        let bit_values = attributes.remove_attr(&element, "bitvalues")?;
+
+        attributes.check_empty(&element, reader)?;
+
+        let mut content = Vec::new();
+        loop {
+            match reader.next()? {
+                XmlEvent::StartElement {
+                    name, attributes, ..
+                } => {
+                    content.push(Content::parse_xml_element(
+                        reader,
+                        name.local_name,
+                        attributes.into_map(),
+                    )?);
+                }
+                XmlEvent::EndElement { name } => {
+                    if name.local_name == element {
+                        break;
+                    } else {
+                        return Err(Error::UnexpectedEnd(name.local_name, element));
+                    }
+                }
+                XmlEvent::Characters(text) => content.push(Content::Characters(text)),
+                XmlEvent::EndDocument => return Err(Error::Eof),
+                _ => {}
+            }
+        }
+
+        Ok(Self {
+            bit_values,
+            content,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct BitmaskTypeAlias {
+    pub name: String,
+    pub alias: String,
+}
+
+impl BitmaskTypeAlias {
+    fn parse_xml_element<R: Read>(
+        reader: &mut EventReader<R>,
+        element: String,
+        mut attributes: HashMap<String, String>,
+    ) -> Result<Self, Error> {
+        let name = attributes.remove_attr(&element, "name")?;
+        let alias = attributes.remove_attr(&element, "alias")?;
+        attributes.check_empty(&element, reader)?;
+
+        loop {
+            match reader.next()? {
+                XmlEvent::StartElement { name, .. } => {
+                    return Err(Error::UnknownStart(name.local_name));
+                }
+                XmlEvent::EndElement { name } => {
+                    if name.local_name == element {
+                        break;
+                    } else {
+                        return Err(Error::UnexpectedEnd(name.local_name, element));
+                    }
+                }
+                XmlEvent::Characters(text) => return Err(Error::Text(text)),
+                XmlEvent::EndDocument => return Err(Error::Eof),
+                _ => {}
+            }
+        }
+
+        Ok(Self { name, alias })
     }
 }
