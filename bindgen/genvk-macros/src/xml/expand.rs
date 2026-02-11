@@ -1,14 +1,34 @@
-#![allow(dead_code)]
-
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Ident, LitStr};
+use syn::{Ident, LitStr, Type};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StructVariant {
+    Unit,
+    Tuple,
+    Braced,
+}
+
+pub struct ParsedFields {
+    pub variant: StructVariant,
+
+    pub items: Vec<ParsedField>,
+    pub attr_fields: Vec<AttrFieldRef>,
+}
+
+pub struct ParsedField {
+    pub name: Option<Ident>,
+    pub ty: Type,
+}
+
+pub struct AttrFieldRef {
+    pub index: usize,
+    pub attr_name: LitStr,
+}
+
 pub enum StructMode {
     Leaf,
-    Branch,
-    Container,
+    Branch { items_field_index: usize },
+    Container { content_field_index: usize },
 }
 
 pub struct ParsedStruct {
@@ -16,15 +36,17 @@ pub struct ParsedStruct {
 
     pub name: Ident,
     pub element: LitStr,
+
+    pub fields: ParsedFields,
 }
 
 impl ParsedStruct {
-    pub fn generate(self) -> syn::Result<TokenStream> {
-        self.generate_impl()
+    pub fn expand(self) -> syn::Result<TokenStream> {
+        self.emit_impl()
     }
 
-    fn generate_impl(&self) -> syn::Result<TokenStream> {
-        let parse_fn = self.generate_parse_fn()?;
+    fn emit_impl(&self) -> syn::Result<TokenStream> {
+        let parse_fn = self.emit_parse_fn()?;
 
         let type_name = &self.name;
         let element_name = &self.element;
@@ -37,8 +59,8 @@ impl ParsedStruct {
         })
     }
 
-    fn generate_parse_fn(&self) -> syn::Result<TokenStream> {
-        let parse_fn_body = self.generate_parse_fn_body()?;
+    fn emit_parse_fn(&self) -> syn::Result<TokenStream> {
+        let parse_fn_body = self.emit_parse_fn_body()?;
 
         Ok(quote! {
             pub fn parse_xml_element<R: std::io::Read>(
@@ -51,11 +73,11 @@ impl ParsedStruct {
         })
     }
 
-    fn generate_parse_fn_body(&self) -> syn::Result<TokenStream> {
-        let preamble = self.generate_parse_fn_preamble()?;
-        let attr_parsing = self.generate_parse_fn_attr_parsing()?;
-        let content_parsing = self.generate_parse_fn_content_parsing()?;
-        let return_stmt = self.generate_parse_fn_return_stmt()?;
+    fn emit_parse_fn_body(&self) -> syn::Result<TokenStream> {
+        let preamble = self.emit_parse_fn_preamble()?;
+        let attr_parsing = self.emit_parse_fn_attr_parsing()?;
+        let content_parsing = self.emit_parse_fn_content_parsing()?;
+        let return_stmt = self.emit_parse_fn_return_stmt()?;
 
         Ok(quote! {
             #preamble
@@ -65,7 +87,7 @@ impl ParsedStruct {
         })
     }
 
-    fn generate_parse_fn_preamble(&self) -> syn::Result<TokenStream> {
+    fn emit_parse_fn_preamble(&self) -> syn::Result<TokenStream> {
         Ok(quote! {
             if element != Self::ELEMENT {
                 return Err(Error::UnexpectedStart(element, Self::ELEMENT.to_string()));
@@ -73,13 +95,13 @@ impl ParsedStruct {
         })
     }
 
-    fn generate_parse_fn_attr_parsing(&self) -> syn::Result<TokenStream> {
+    fn emit_parse_fn_attr_parsing(&self) -> syn::Result<TokenStream> {
         Ok(quote! {
             attributes.check_empty(&element, reader)?;
         })
     }
 
-    fn generate_parse_fn_content_parsing(&self) -> syn::Result<TokenStream> {
+    fn emit_parse_fn_content_parsing(&self) -> syn::Result<TokenStream> {
         Ok(quote! {
             let mut content = String::new();
             loop {
@@ -102,7 +124,7 @@ impl ParsedStruct {
         })
     }
 
-    fn generate_parse_fn_return_stmt(&self) -> syn::Result<TokenStream> {
+    fn emit_parse_fn_return_stmt(&self) -> syn::Result<TokenStream> {
         Ok(quote! {
             Ok(Self(content))
         })
