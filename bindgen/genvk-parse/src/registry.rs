@@ -88,32 +88,12 @@ pub struct Registry {
     pub items: Vec<RegistryItem>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Xml)]
 pub enum RegistryItem {
     Comment(Comment),
     Platforms(Platforms),
     Tags(Tags),
     Types(Types),
-}
-
-impl RegistryItem {
-    pub fn parse_xml_element<R: Read>(
-        reader: &mut EventReader<R>,
-        element: String,
-        attributes: HashMap<String, String>,
-    ) -> Result<Self, Error> {
-        Ok(match element.as_str() {
-            Comment::ELEMENT => {
-                Self::Comment(Comment::parse_xml_element(reader, element, attributes)?)
-            }
-            Platforms::ELEMENT => {
-                Self::Platforms(Platforms::parse_xml_element(reader, element, attributes)?)
-            }
-            Tags::ELEMENT => Self::Tags(Tags::parse_xml_element(reader, element, attributes)?),
-            Types::ELEMENT => Self::Types(Types::parse_xml_element(reader, element, attributes)?),
-            _ => return Err(Error::UnknownStart(element)),
-        })
-    }
 }
 
 #[derive(Debug, Xml)]
@@ -158,26 +138,10 @@ pub struct Types {
     pub items: Vec<TypesItem>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Xml)]
 pub enum TypesItem {
     Comment(Comment),
     Type(Type),
-}
-
-impl TypesItem {
-    pub fn parse_xml_element<R: Read>(
-        reader: &mut EventReader<R>,
-        element: String,
-        attributes: HashMap<String, String>,
-    ) -> Result<Self, Error> {
-        Ok(match element.as_str() {
-            Comment::ELEMENT => {
-                Self::Comment(Comment::parse_xml_element(reader, element, attributes)?)
-            }
-            Type::ELEMENT => Self::Type(Type::parse_xml_element(reader, element, attributes)?),
-            _ => return Err(Error::UnknownStart(element)),
-        })
-    }
 }
 
 #[derive(Debug, Xml)]

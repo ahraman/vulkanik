@@ -160,10 +160,16 @@ impl ParsedStruct {
             };
         }
 
-        let empty_check = if matches!(&self.content, Some(StructContent {kind: StructContentKind::Inline, ..})) {
+        let empty_check = if matches!(
+            &self.content,
+            Some(StructContent {
+                kind: StructContentKind::Inline,
+                ..
+            })
+        ) {
             TokenStream::new()
         } else {
-            quote!{ attributes.check_empty(&element, reader)?; }
+            quote! { attributes.check_empty(&element, reader)?; }
         };
 
         quote! {
@@ -320,6 +326,71 @@ impl ParsedStruct {
 
         quote! {
             Ok(#initializer)
+        }
+    }
+}
+
+pub struct ParsedEnum {
+    pub name: Ident,
+
+    pub variants: ParsedVariants,
+}
+
+pub struct ParsedVariants {
+    pub items: Vec<ParsedVariant>,
+}
+
+pub struct ParsedVariant {
+    pub name: Ident,
+    pub ty: Type,
+}
+
+impl ParsedEnum {
+    pub fn expand(self) -> TokenStream {
+        self.expand_impl()
+    }
+
+    fn expand_impl(&self) -> TokenStream {
+        let parse_fn = self.emit_parse_fn();
+
+        let type_name = &self.name;
+        quote! {
+            impl #type_name {
+                #parse_fn
+            }
+        }
+    }
+
+    fn emit_parse_fn(&self) -> TokenStream {
+        let parse_fn_body = self.emit_parse_fn_body();
+
+        quote! {
+            pub fn parse_xml_element<R: std::io::Read>(
+                    reader: &mut xml::EventReader<R>,
+                    element: String,
+                    mut attributes: std::collections::HashMap<String, String>,
+                ) -> Result<Self, Error> {
+                #parse_fn_body
+            }
+        }
+    }
+
+    fn emit_parse_fn_body(&self) -> TokenStream {
+        let mut variants = TokenStream::new();
+        for variant in &self.variants.items {
+            let variant_name = &variant.name;
+            let variant_type = &variant.ty;
+            variants = quote! {
+                #variants
+                #variant_type::ELEMENT => Self::#variant_name(#variant_type::parse_xml_element(reader, element, attributes)?),
+            };
+        }
+
+        quote! {
+            Ok(match element.as_str() {
+                #variants
+                _ => return Err(Error::UnknownStart(element)),
+            })
         }
     }
 }

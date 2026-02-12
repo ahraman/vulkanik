@@ -3,20 +3,22 @@ pub mod expand;
 pub mod util;
 
 use proc_macro2::{Span, TokenStream};
-use syn::{Attribute, Data, DataEnum, DataStruct, DeriveInput, Fields, Ident};
+use syn::{
+    Attribute, Data, DataEnum, DataStruct, DeriveInput, Fields, Ident, Variant, spanned::Spanned,
+};
 
 use crate::xml::{
     attr::{FieldAttr, StructAttr, parse_attrs},
     expand::{
-        AttrFieldRef, ParsedField, ParsedFields, ParsedStruct, StructContent, StructContentKind,
-        StructVariant,
+        AttrFieldRef, ParsedEnum, ParsedField, ParsedFields, ParsedStruct, ParsedVariant,
+        ParsedVariants, StructContent, StructContentKind, StructVariant,
     },
 };
 
 pub fn derive(input: DeriveInput) -> syn::Result<TokenStream> {
     match input.data {
         Data::Struct(data) => derive_struct(input.ident, input.attrs, data),
-        Data::Enum(data) => derive_enum(data),
+        Data::Enum(data) => derive_enum(input.ident, input.attrs, data),
         Data::Union(data) => Err(syn::Error::new_spanned(
             data.union_token,
             "union types unsupported",
@@ -48,7 +50,7 @@ fn parse_struct_data(
     }
 
     let element = element.unwrap_or_else(|| util::rust_type_to_xml(&name));
-    let (fields, content) = parse_struct_fields_data(data.fields, content_kind)?;
+    let (fields, content) = parse_struct_fields(data.fields, content_kind)?;
 
     Ok(ParsedStruct {
         name,
@@ -60,7 +62,7 @@ fn parse_struct_data(
     })
 }
 
-fn parse_struct_fields_data(
+fn parse_struct_fields(
     fields: Fields,
     content_kind: Option<StructContentKind>,
 ) -> syn::Result<(ParsedFields, Option<StructContent>)> {
@@ -154,6 +156,42 @@ fn parse_struct_fields_data(
     ))
 }
 
-fn derive_enum(_data: DataEnum) -> syn::Result<TokenStream> {
-    todo!()
+fn derive_enum(name: Ident, attrs: Vec<Attribute>, data: DataEnum) -> syn::Result<TokenStream> {
+    Ok(parse_enum(name, attrs, data)?.expand())
+}
+
+fn parse_enum(name: Ident, _attrs: Vec<Attribute>, data: DataEnum) -> syn::Result<ParsedEnum> {
+    let variants = parse_enum_variants(data.variants)?;
+
+    Ok(ParsedEnum { name, variants })
+}
+
+fn parse_enum_variants(variants: impl IntoIterator<Item = Variant>) -> syn::Result<ParsedVariants> {
+    let mut items = Vec::new();
+    for variant in variants.into_iter() {
+        let span = variant.span();
+        let ty = match variant.fields {
+            Fields::Unnamed(fields) => {
+                let mut iter = fields.unnamed.into_iter();
+                let field = iter.next();
+                match (field, iter.next()) {
+                    (None, _) | (Some(_), Some(_)) => {
+                        return Err(syn::Error::new(
+                            span,
+                            "variants must have exactly one unnamed field",
+                        ));
+                    }
+                    (Some(field), None) => field.ty,
+                }
+            }
+            _ => return Err(syn::Error::new(span, "named or unit variants unsupported")),
+        };
+
+        items.push(ParsedVariant {
+            name: variant.ident,
+            ty,
+        })
+    }
+
+    Ok(ParsedVariants { items })
 }
