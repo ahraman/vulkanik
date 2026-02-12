@@ -3,7 +3,10 @@ use std::{collections::HashMap, io::Read};
 use genvk_macros::Xml;
 use xml::{EventReader, reader::XmlEvent};
 
-use crate::{Error, FromAttr, IntoMap, MapExt};
+use crate::{
+    Error,
+    traits::{FromAttr, IntoMap, MapExt, PushText},
+};
 
 #[derive(Debug)]
 pub enum Api {
@@ -67,6 +70,12 @@ impl Content {
                 _ => {}
             }
         }
+    }
+}
+
+impl PushText for Vec<Content> {
+    fn push_text(&mut self, text: String) {
+        self.push(Content::Characters(text));
     }
 }
 
@@ -165,46 +174,21 @@ impl TypesItem {
             Comment::ELEMENT => {
                 Self::Comment(Comment::parse_xml_element(reader, element, attributes)?)
             }
-            Type::TAG => Self::Type(Type::parse_xml_element(reader, element, attributes)?),
+            Type::ELEMENT => Self::Type(Type::parse_xml_element(reader, element, attributes)?),
             _ => return Err(Error::UnknownStart(element)),
         })
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Xml)]
+#[xml(inline)]
 pub struct Type {
     pub api: Option<Vec<Api>>,
     pub requires: Option<String>,
     pub comment: Option<String>,
 
+    #[xml(inner)]
     pub kind: TypeKind,
-}
-
-impl Type {
-    pub(crate) const TAG: &'static str = "type";
-
-    pub fn parse_xml_element<R: Read>(
-        reader: &mut EventReader<R>,
-        element: String,
-        mut attributes: HashMap<String, String>,
-    ) -> Result<Self, Error> {
-        if element != Self::TAG {
-            return Err(Error::UnexpectedStart(element, Self::TAG.to_string()));
-        }
-
-        let api = attributes.remove_attr(&element, "api")?;
-        let requires = attributes.remove_attr(&element, "requires")?;
-        let comment = attributes.remove_attr(&element, "comment")?;
-
-        let kind = TypeKind::parse_xml_element(reader, element, attributes)?;
-
-        Ok(Self {
-            api,
-            requires,
-            comment,
-            kind,
-        })
-    }
 }
 
 #[derive(Debug)]
@@ -253,168 +237,35 @@ impl TypeKind {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Xml)]
+#[xml(incomplete)]
 pub struct ExternalType {
     pub name: String,
 }
 
-impl ExternalType {
-    fn parse_xml_element<R: Read>(
-        reader: &mut EventReader<R>,
-        element: String,
-        mut attributes: HashMap<String, String>,
-    ) -> Result<Self, Error> {
-        let name = attributes.remove_attr(&element, "name")?;
-        attributes.check_empty(&element, reader)?;
-
-        loop {
-            match reader.next()? {
-                XmlEvent::StartElement { name, .. } => {
-                    return Err(Error::UnknownStart(name.local_name));
-                }
-                XmlEvent::EndElement { name } => {
-                    if name.local_name == element {
-                        break;
-                    } else {
-                        return Err(Error::UnexpectedEnd(name.local_name, element));
-                    }
-                }
-                XmlEvent::Characters(text) => return Err(Error::Text(text)),
-                XmlEvent::EndDocument => return Err(Error::Eof),
-                _ => {}
-            }
-        }
-
-        Ok(Self { name })
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Xml)]
+#[xml(text, incomplete)]
 pub struct IncludeType {
     pub name: String,
 
+    #[xml(text)]
     pub content: Option<String>,
 }
 
-impl IncludeType {
-    fn parse_xml_element<R: Read>(
-        reader: &mut EventReader<R>,
-        element: String,
-        mut attributes: HashMap<String, String>,
-    ) -> Result<Self, Error> {
-        let name = attributes.remove_attr(&element, "name")?;
-        attributes.check_empty(&element, reader)?;
-
-        let mut content = None;
-        loop {
-            match reader.next()? {
-                XmlEvent::StartElement { name, .. } => {
-                    return Err(Error::UnknownStart(name.local_name));
-                }
-                XmlEvent::EndElement { name } => {
-                    if name.local_name == element {
-                        break;
-                    } else {
-                        return Err(Error::UnexpectedEnd(name.local_name, element));
-                    }
-                }
-                XmlEvent::Characters(text) => {
-                    content = Some(content.unwrap_or_default() + text.as_str())
-                }
-                XmlEvent::EndDocument => return Err(Error::Eof),
-                _ => {}
-            }
-        }
-
-        Ok(Self { name, content })
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Xml)]
+#[xml(mixed(Content), incomplete)]
 pub struct DefineType {
     pub name: Option<String>,
 
+    #[xml(content)]
     pub content: Vec<Content>,
 }
 
-impl DefineType {
-    fn parse_xml_element<R: Read>(
-        reader: &mut EventReader<R>,
-        element: String,
-        mut attributes: HashMap<String, String>,
-    ) -> Result<Self, Error> {
-        let name = attributes.remove_attr(&element, "name")?;
-        attributes.check_empty(&element, reader)?;
-
-        let mut content = Vec::new();
-        loop {
-            match reader.next()? {
-                XmlEvent::StartElement {
-                    name, attributes, ..
-                } => {
-                    content.push(Content::parse_xml_element(
-                        reader,
-                        name.local_name,
-                        attributes.into_map(),
-                    )?);
-                }
-                XmlEvent::EndElement { name } => {
-                    if name.local_name == element {
-                        break;
-                    } else {
-                        return Err(Error::UnexpectedEnd(name.local_name, element));
-                    }
-                }
-                XmlEvent::Characters(text) => content.push(Content::Characters(text)),
-                XmlEvent::EndDocument => return Err(Error::Eof),
-                _ => {}
-            }
-        }
-
-        Ok(Self { name, content })
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Xml)]
+#[xml(mixed(Content), incomplete)]
 pub struct BaseType {
+    #[xml(content)]
     pub content: Vec<Content>,
-}
-
-impl BaseType {
-    fn parse_xml_element<R: Read>(
-        reader: &mut EventReader<R>,
-        element: String,
-        attributes: HashMap<String, String>,
-    ) -> Result<Self, Error> {
-        attributes.check_empty(&element, reader)?;
-
-        let mut content = Vec::new();
-        loop {
-            match reader.next()? {
-                XmlEvent::StartElement {
-                    name, attributes, ..
-                } => {
-                    content.push(Content::parse_xml_element(
-                        reader,
-                        name.local_name,
-                        attributes.into_map(),
-                    )?);
-                }
-                XmlEvent::EndElement { name } => {
-                    if name.local_name == element {
-                        break;
-                    } else {
-                        return Err(Error::UnexpectedEnd(name.local_name, element));
-                    }
-                }
-                XmlEvent::Characters(text) => content.push(Content::Characters(text)),
-                XmlEvent::EndDocument => return Err(Error::Eof),
-                _ => {}
-            }
-        }
-
-        Ok(Self { content })
-    }
 }
 
 #[derive(Debug)]
@@ -441,89 +292,19 @@ impl BitmaskType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Xml)]
+#[xml(mixed(Content), incomplete)]
 pub struct BitmaskTypeDecl {
+    #[xml(rename = "bitvalues")]
     pub bit_values: Option<String>,
 
+    #[xml(content)]
     pub content: Vec<Content>,
 }
 
-impl BitmaskTypeDecl {
-    fn parse_xml_element<R: Read>(
-        reader: &mut EventReader<R>,
-        element: String,
-        mut attributes: HashMap<String, String>,
-    ) -> Result<Self, Error> {
-        let bit_values = attributes.remove_attr(&element, "bitvalues")?;
-
-        attributes.check_empty(&element, reader)?;
-
-        let mut content = Vec::new();
-        loop {
-            match reader.next()? {
-                XmlEvent::StartElement {
-                    name, attributes, ..
-                } => {
-                    content.push(Content::parse_xml_element(
-                        reader,
-                        name.local_name,
-                        attributes.into_map(),
-                    )?);
-                }
-                XmlEvent::EndElement { name } => {
-                    if name.local_name == element {
-                        break;
-                    } else {
-                        return Err(Error::UnexpectedEnd(name.local_name, element));
-                    }
-                }
-                XmlEvent::Characters(text) => content.push(Content::Characters(text)),
-                XmlEvent::EndDocument => return Err(Error::Eof),
-                _ => {}
-            }
-        }
-
-        Ok(Self {
-            bit_values,
-            content,
-        })
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Xml)]
+#[xml(incomplete)]
 pub struct BitmaskTypeAlias {
     pub name: String,
     pub alias: String,
-}
-
-impl BitmaskTypeAlias {
-    fn parse_xml_element<R: Read>(
-        reader: &mut EventReader<R>,
-        element: String,
-        mut attributes: HashMap<String, String>,
-    ) -> Result<Self, Error> {
-        let name = attributes.remove_attr(&element, "name")?;
-        let alias = attributes.remove_attr(&element, "alias")?;
-        attributes.check_empty(&element, reader)?;
-
-        loop {
-            match reader.next()? {
-                XmlEvent::StartElement { name, .. } => {
-                    return Err(Error::UnknownStart(name.local_name));
-                }
-                XmlEvent::EndElement { name } => {
-                    if name.local_name == element {
-                        break;
-                    } else {
-                        return Err(Error::UnexpectedEnd(name.local_name, element));
-                    }
-                }
-                XmlEvent::Characters(text) => return Err(Error::Text(text)),
-                XmlEvent::EndDocument => return Err(Error::Eof),
-                _ => {}
-            }
-        }
-
-        Ok(Self { name, alias })
-    }
 }
