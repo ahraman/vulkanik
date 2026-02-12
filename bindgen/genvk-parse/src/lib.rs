@@ -30,7 +30,7 @@ fn parse_xml_inner<R: Read>(reader: &mut EventReader<R>) -> Result<Registry, Err
                     )?)
                     .is_some()
                 {
-                    return Err(Error::Duplicate(Registry::TAG.to_string()));
+                    return Err(Error::Duplicate(Registry::ELEMENT.to_string()));
                 }
             }
             XmlEvent::EndDocument => return registry.ok_or_else(|| Error::Eof),

@@ -1,10 +1,12 @@
 #![allow(dead_code)]
 
 use syn::{
-    Attribute, Ident, LitStr, Token,
+    Attribute, Ident, LitStr, Token, Type,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
 };
+
+use crate::xml::util;
 
 const XML_HELPER_ATTR: &'static str = "xml";
 
@@ -51,6 +53,9 @@ impl<T: Parse> EqAttr<T> {
 
 pub enum StructAttr {
     Rename(EqAttr<LitStr>),
+    Text(Ident),
+    Items(Ident, Type),
+    Mixed(Ident, Type),
 }
 
 impl Parse for StructAttr {
@@ -60,6 +65,8 @@ impl Parse for StructAttr {
 
         Ok(match name.as_str() {
             "rename" => Self::Rename(EqAttr::parse(ident, input)?),
+            "text" => Self::Text(ident),
+            "items" => Self::Items(ident, util::parse_parenthesized(input)?),
             _ => {
                 return Err(syn::Error::new_spanned(
                     ident,
@@ -72,8 +79,8 @@ impl Parse for StructAttr {
 
 pub enum FieldAttr {
     Rename(EqAttr<LitStr>),
-    Items(Ident),
     Text(Ident),
+    Items(Ident),
     Mixed(Ident),
     Ignore(Ident),
 }
