@@ -35,12 +35,15 @@ fn parse_struct_data(
 ) -> syn::Result<ParsedStruct> {
     let mut element = None;
     let mut content_kind = None;
+    let mut incomplete = false;
     for attr in parse_attrs::<StructAttr>(&attrs)? {
         match attr {
             StructAttr::Rename(rename) => element = Some(rename.value),
+            StructAttr::Incomplete(_) => incomplete = true,
             StructAttr::Text(_) => content_kind = Some(StructContentKind::Text),
             StructAttr::Items(_, ty) => content_kind = Some(StructContentKind::Items(ty)),
             StructAttr::Mixed(_, ty) => content_kind = Some(StructContentKind::Mixed(ty)),
+            StructAttr::Inline(_) => content_kind = Some(StructContentKind::Inline),
         }
     }
 
@@ -53,6 +56,7 @@ fn parse_struct_data(
 
         fields,
         content,
+        incomplete,
     })
 }
 
@@ -78,19 +82,27 @@ fn parse_struct_fields_data(
             let mut attr_name = None;
 
             for attr in parse_attrs::<FieldAttr>(&field.attrs)? {
-                match attr {
-                    FieldAttr::Rename(rename) => attr_name = Some(rename.value),
-                    FieldAttr::Ignore(_) => {
+                match (&content_kind, attr) {
+                    (_, FieldAttr::Rename(rename)) => attr_name = Some(rename.value),
+                    (_, FieldAttr::Ignore(_)) => {
                         attr_field = false;
                         default_initialized = true;
                     }
-                    FieldAttr::Items(_) => {
+                    (Some(StructContentKind::Items(_)), FieldAttr::Items(_)) => {
                         attr_field = false;
                         local_name_preference = Some("items");
                     }
-                    FieldAttr::Mixed(_) | FieldAttr::Text(_) => {
+                    (Some(StructContentKind::Text), FieldAttr::Text(_))
+                    | (Some(StructContentKind::Mixed(_)), FieldAttr::Content(_))
+                    | (Some(StructContentKind::Inline), FieldAttr::Inner(_)) => {
                         attr_field = false;
                         local_name_preference = Some("content");
+                    }
+                    _ => {
+                        return Err(syn::Error::new(
+                            Span::call_site(),
+                            "incompatible field with the structure content type",
+                        ));
                     }
                 }
             }

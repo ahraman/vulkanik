@@ -2,6 +2,8 @@ use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{Ident, LitStr, Token, Type, punctuated::Punctuated};
 
+use crate::xml::util;
+
 pub enum StructVariant {
     Unit,
     Tuple,
@@ -12,6 +14,7 @@ pub enum StructContentKind {
     Text,
     Items(Type),
     Mixed(Type),
+    Inline,
 }
 
 pub struct StructContent {
@@ -25,6 +28,7 @@ pub struct ParsedStruct {
 
     pub fields: ParsedFields,
     pub content: Option<StructContent>,
+    pub incomplete: bool,
 }
 
 pub struct ParsedFields {
@@ -76,15 +80,27 @@ impl ParsedStruct {
     }
 
     fn emit_impl(&self) -> TokenStream {
+        let consts = self.emit_impl_consts();
         let parse_fn = self.emit_parse_fn();
 
         let type_name = &self.name;
-        let element_name = &self.element;
         quote! {
             impl #type_name {
-                pub(crate) const ELEMENT: &'static str = #element_name;
+                #consts
 
                 #parse_fn
+            }
+        }
+    }
+
+    fn emit_impl_consts(&self) -> TokenStream {
+        if self.incomplete {
+            TokenStream::new()
+        } else {
+            let element_name = &self.element;
+
+            quote! {
+                pub(crate) const ELEMENT: &'static str = #element_name;
             }
         }
     }
@@ -104,15 +120,10 @@ impl ParsedStruct {
     }
 
     fn emit_parse_fn_body(&self) -> TokenStream {
+        let preamble = self.emit_parse_fn_preamble();
         let attr_parsing = self.emit_parse_fn_attr_parsing();
         let content_parsing = self.emit_parse_fn_content_parsing();
         let return_stmt = self.emit_parse_fn_return_stmt();
-
-        let preamble = quote! {
-            if element != Self::ELEMENT {
-                return Err(Error::UnexpectedStart(element, Self::ELEMENT.to_string()));
-            }
-        };
 
         quote! {
             #preamble
@@ -122,6 +133,18 @@ impl ParsedStruct {
             #content_parsing
 
             #return_stmt
+        }
+    }
+
+    fn emit_parse_fn_preamble(&self) -> TokenStream {
+        if self.incomplete {
+            TokenStream::new()
+        } else {
+            quote! {
+                if element != Self::ELEMENT {
+                    return Err(Error::UnexpectedStart(element, Self::ELEMENT.to_string()));
+                }
+            }
         }
     }
 
@@ -137,20 +160,46 @@ impl ParsedStruct {
             };
         }
 
+        let empty_check = if matches!(&self.content, Some(StructContent {kind: StructContentKind::Inline, ..})) {
+            TokenStream::new()
+        } else {
+            quote!{ attributes.check_empty(&element, reader)?; }
+        };
+
         quote! {
             #initializers
 
-            attributes.check_empty(&element, reader)?;
+            #empty_check
         }
     }
 
     fn emit_parse_fn_content_parsing(&self) -> TokenStream {
-        let accum_init_stmt = self.emit_parse_fn_content_accum_init_stmt();
-        let match_stmt = self.emit_parse_fn_match_stmt();
-        quote! {
-            #accum_init_stmt
-            loop {
-                #match_stmt
+        match self.content {
+            Some(StructContent {
+                kind: StructContentKind::Inline,
+                field_index,
+            }) => {
+                let content_field = &self.fields.items[field_index];
+                let content_field_name = content_field.local_name();
+                let content_field_type = &content_field.ty;
+
+                quote! {
+                    let #content_field_name = #content_field_type::parse_xml_element(
+                        reader,
+                        element,
+                        attributes,
+                    )?;
+                }
+            }
+            _ => {
+                let accum_init_stmt = self.emit_parse_fn_content_accum_init_stmt();
+                let match_stmt = self.emit_parse_fn_match_stmt();
+                quote! {
+                    #accum_init_stmt
+                    loop {
+                        #match_stmt
+                    }
+                }
             }
         }
     }
@@ -163,9 +212,19 @@ impl ParsedStruct {
                 let ident = content_field.local_name();
 
                 let init_expr = match &content.kind {
-                    StructContentKind::Text => quote! { String::new() },
+                    StructContentKind::Text => {
+                        if util::is_option_type(&content_field.ty) {
+                            quote! { None }
+                        } else {
+                            quote! { String::new() }
+                        }
+                    }
                     StructContentKind::Items(_) | StructContentKind::Mixed(_) => {
                         quote! { Vec::new() }
+                    }
+                    StructContentKind::Inline => {
+                        // inline structs delegate content initialization to their member field.
+                        unreachable!()
                     }
                 };
                 quote! { let mut #ident = #init_expr; }
@@ -184,34 +243,35 @@ impl ParsedStruct {
                 match &content.kind {
                     StructContentKind::Text => {
                         characters = Some(quote! {
-                            XmlEvent::Characters(text) => #content_field_name += text.as_str(),
+                            XmlEvent::Characters(text) => { #content_field_name.push_text(text); },
                         });
                     }
                     StructContentKind::Items(ty) => {
                         start_element = Some(quote! {
-                                XmlEvent::StartElement { name, attributes, .. } => {
-                                    #content_field_name.push(#ty::parse_xml_element(
-                                        reader,
-                                        name.local_name,
-                                        attributes.into_map(),
+                            XmlEvent::StartElement { name, attributes, .. } => {
+                                #content_field_name.push(#ty::parse_xml_element(
+                                    reader,
+                                    name.local_name,
+                                    attributes.into_map(),
                                 )?);
                             }
                         });
                     }
                     StructContentKind::Mixed(ty) => {
                         start_element = Some(quote! {
-                                XmlEvent::StartElement { name, .. } => {
-                                    #content_field_name.push(#ty::parse_xml_element(
-                                        reader,
-                                        name.local_name,
-                                        attributes.into_map(),
-                                )?),
+                            XmlEvent::StartElement { name, attributes, .. } => {
+                                #content_field_name.push(#ty::parse_xml_element(
+                                    reader,
+                                    name.local_name,
+                                    attributes.into_map(),
+                                )?);
                             }
                         });
                         characters = Some(quote! {
-                            XmlEvent::Characters(text) => #content_field_name.parse_text(text),
+                            XmlEvent::Characters(text) => #content_field_name.push_text(text),
                         });
                     }
+                    StructContentKind::Inline => {}
                 }
             }
         }
@@ -231,7 +291,7 @@ impl ParsedStruct {
                 #start_element
                 #characters
                 XmlEvent::EndElement { name } => {
-                    if name.local_name == Self::ELEMENT {
+                    if name.local_name == element {
                         break;
                     } else {
                         return Err(Error::UnexpectedEnd(name.local_name, element));

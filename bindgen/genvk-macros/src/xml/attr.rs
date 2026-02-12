@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use syn::{
     Attribute, Ident, LitStr, Token, Type,
     parse::{Parse, ParseStream},
@@ -24,10 +22,10 @@ pub fn parse_attrs<T: Parse>(attrs: &[Attribute]) -> syn::Result<Vec<T>> {
     Ok(buf)
 }
 
+#[allow(dead_code)]
 pub struct EqAttr<T> {
     pub ident: Ident,
     pub value: T,
-
     pub eq_token: Token![=],
 }
 
@@ -39,7 +37,7 @@ impl<T: Parse> EqAttr<T> {
                 "unexpected end of input, expected `= {value}`",
             ))
         } else {
-            let eq_token = input.parse()?;
+            let eq_token = input.parse::<Token![=]>()?;
             let value = input.parse()?;
 
             Ok(Self {
@@ -51,11 +49,14 @@ impl<T: Parse> EqAttr<T> {
     }
 }
 
+#[allow(dead_code)]
 pub enum StructAttr {
     Rename(EqAttr<LitStr>),
+    Incomplete(Ident),
     Text(Ident),
     Items(Ident, Type),
     Mixed(Ident, Type),
+    Inline(Ident),
 }
 
 impl Parse for StructAttr {
@@ -65,8 +66,11 @@ impl Parse for StructAttr {
 
         Ok(match name.as_str() {
             "rename" => Self::Rename(EqAttr::parse(ident, input)?),
+            "incomplete" => Self::Incomplete(ident),
             "text" => Self::Text(ident),
             "items" => Self::Items(ident, util::parse_parenthesized(input)?),
+            "mixed" => Self::Mixed(ident, util::parse_parenthesized(input)?),
+            "inline" => Self::Inline(ident),
             _ => {
                 return Err(syn::Error::new_spanned(
                     ident,
@@ -77,11 +81,13 @@ impl Parse for StructAttr {
     }
 }
 
+#[allow(dead_code)]
 pub enum FieldAttr {
     Rename(EqAttr<LitStr>),
     Text(Ident),
     Items(Ident),
-    Mixed(Ident),
+    Content(Ident),
+    Inner(Ident),
     Ignore(Ident),
 }
 
@@ -94,13 +100,11 @@ impl Parse for FieldAttr {
             "rename" => Self::Rename(EqAttr::parse(ident, input)?),
             "items" => Self::Items(ident),
             "text" => Self::Text(ident),
-            "mixed" => Self::Mixed(ident),
+            "content" => Self::Content(ident),
+            "inner" => Self::Inner(ident),
             "ignore" => Self::Ignore(ident),
             _ => {
-                return Err(syn::Error::new_spanned(
-                    ident,
-                    "unexpected struct attribute",
-                ));
+                return Err(syn::Error::new_spanned(ident, "unexpected field attribute"));
             }
         })
     }
