@@ -3,11 +3,13 @@ pub mod expand;
 pub mod util;
 
 use proc_macro2::TokenStream;
-use syn::{Attribute, Data, DataEnum, DataStruct, DeriveInput, Fields, Ident};
+use syn::{Attribute, Data, DataEnum, DataStruct, DeriveInput, Fields, Ident, spanned::Spanned};
 
 use crate::xml::{
-    attr::{StructAttr, parse_attrs},
-    expand::{ParsedField, ParsedFields, ParsedStruct, StructMode, StructVariant},
+    attr::{FieldAttr, StructAttr, parse_attrs},
+    expand::{
+        AttrFieldRef, FieldMode, ParsedField, ParsedFields, ParsedStruct, StructMode, StructVariant,
+    },
 };
 
 pub fn derive(input: DeriveInput) -> syn::Result<TokenStream> {
@@ -22,7 +24,7 @@ pub fn derive(input: DeriveInput) -> syn::Result<TokenStream> {
 }
 
 fn derive_struct(name: Ident, attrs: Vec<Attribute>, data: DataStruct) -> syn::Result<TokenStream> {
-    parse_struct_data(name, attrs, data)?.expand()
+    Ok(parse_struct_data(name, attrs, data)?.expand())
 }
 
 fn parse_struct_data(
@@ -62,10 +64,60 @@ fn parse_struct_fields_data(fields: Fields) -> syn::Result<(StructMode, ParsedFi
     let mut attr_fields = Vec::new();
 
     if let Some(fields) = fields {
-        for field in fields {
+        for (index, field) in fields.enumerate() {
+            let mut attr_name = None;
+            let mut field_mode = FieldMode::Attr;
+
+            for attr in parse_attrs::<FieldAttr>(&field.attrs)? {
+                match attr {
+                    FieldAttr::Rename(rename) => attr_name = Some(rename.value),
+                    FieldAttr::Items(_) => field_mode = FieldMode::Items,
+                    FieldAttr::Text(_) => field_mode = FieldMode::Text,
+                    FieldAttr::Mixed(_) => field_mode = FieldMode::Mixed,
+                    FieldAttr::Ignore(_) => field_mode = FieldMode::Default,
+                }
+            }
+
+            let mut new_mode = None;
+            match field_mode {
+                FieldMode::Default => {}
+                FieldMode::Attr => {
+                    let attr_name = attr_name.unwrap_or_else(|| {
+                        util::rust_type_to_xml(
+                            field
+                                .ident.as_ref()
+                                .expect(r#"attribute fields on tuple structs need a name: use `#[xml(rename = "...")]`"#))
+                    });
+
+                    attr_fields.push(AttrFieldRef {
+                        index,
+                        attr_name: attr_name,
+                    })
+                }
+                FieldMode::Items | FieldMode::Text | FieldMode::Mixed => {
+                    new_mode = Some(StructMode::Branch {
+                        container_field_index: index,
+                    });
+                }
+            }
+
+            if let Some(new_mode) = new_mode {
+                if mode.is_some() {
+                    return Err(syn::Error::new(
+                        field.span(),
+                        "cannot have multiple container fields at once in a struct",
+                    ));
+                } else {
+                    mode = Some(new_mode);
+                }
+            }
+
             items.push(ParsedField {
                 name: field.ident,
                 ty: field.ty,
+
+                index,
+                mode: field_mode,
             });
         }
     }

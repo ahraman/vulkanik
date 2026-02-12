@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use syn::{
     Attribute, Ident, LitStr, Token,
     parse::{Parse, ParseStream},
@@ -58,6 +60,35 @@ impl Parse for StructAttr {
 
         Ok(match name.as_str() {
             "rename" => Self::Rename(EqAttr::parse(ident, input)?),
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    ident,
+                    "unexpected struct attribute",
+                ));
+            }
+        })
+    }
+}
+
+pub enum FieldAttr {
+    Rename(EqAttr<LitStr>),
+    Items(Ident),
+    Text(Ident),
+    Mixed(Ident),
+    Ignore(Ident),
+}
+
+impl Parse for FieldAttr {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let ident = input.parse::<Ident>()?;
+        let name = ident.to_string();
+
+        Ok(match name.as_str() {
+            "rename" => Self::Rename(EqAttr::parse(ident, input)?),
+            "items" => Self::Items(ident),
+            "text" => Self::Text(ident),
+            "mixed" => Self::Mixed(ident),
+            "ignore" => Self::Ignore(ident),
             _ => {
                 return Err(syn::Error::new_spanned(
                     ident,
