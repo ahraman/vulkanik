@@ -24,11 +24,11 @@ pub struct StructContent {
 
 pub struct ParsedStruct {
     pub name: Ident,
-    pub element: LitStr,
+
+    pub element: Option<LitStr>,
 
     pub fields: ParsedFields,
     pub content: Option<StructContent>,
-    pub incomplete: bool,
 }
 
 pub struct ParsedFields {
@@ -94,13 +94,12 @@ impl ParsedStruct {
     }
 
     fn emit_impl_consts(&self) -> TokenStream {
-        if self.incomplete {
-            TokenStream::new()
-        } else {
-            let element_name = &self.element;
-
-            quote! {
-                pub(crate) const ELEMENT: &'static str = #element_name;
+        match &self.element {
+            None => TokenStream::new(),
+            Some(element_name) => {
+                quote! {
+                    pub(crate) const ELEMENT: &'static str = #element_name;
+                }
             }
         }
     }
@@ -120,7 +119,7 @@ impl ParsedStruct {
     }
 
     fn emit_parse_fn_body(&self) -> TokenStream {
-        let preamble = self.emit_parse_fn_preamble();
+        let preamble = self.emit_parse_fn_preamble(self.element.is_none());
         let attr_parsing = self.emit_parse_fn_attr_parsing();
         let content_parsing = self.emit_parse_fn_content_parsing();
         let return_stmt = self.emit_parse_fn_return_stmt();
@@ -136,8 +135,8 @@ impl ParsedStruct {
         }
     }
 
-    fn emit_parse_fn_preamble(&self) -> TokenStream {
-        if self.incomplete {
+    fn emit_parse_fn_preamble(&self, incomplete: bool) -> TokenStream {
+        if incomplete {
             TokenStream::new()
         } else {
             quote! {
@@ -342,13 +341,15 @@ pub enum ParsedVariants {
     },
     Attrs {
         items: Vec<(ParsedVariant, LitStr)>,
-        default: ParsedVariant,
+        default: Option<ParsedVariant>,
+        element: Option<LitStr>,
     },
     AttrValues {
         attr_name: LitStr,
         items: Vec<(ParsedVariant, LitStr)>,
         none: Option<ParsedVariant>,
         default: Option<ParsedVariant>,
+        element: Option<LitStr>,
     },
 }
 
@@ -363,13 +364,34 @@ impl ParsedEnum {
     }
 
     fn expand_impl(&self) -> TokenStream {
+        let consts = self.emit_impl_consts();
         let parse_fn = self.emit_parse_fn();
 
         let type_name = &self.name;
         quote! {
             impl #type_name {
+                #consts
+
                 #parse_fn
             }
+        }
+    }
+
+    fn emit_impl_consts(&self) -> TokenStream {
+        match &self.variants {
+            ParsedVariants::Attrs {
+                element: Some(element_name),
+                ..
+            }
+            | ParsedVariants::AttrValues {
+                element: Some(element_name),
+                ..
+            } => {
+                quote! {
+                    pub(crate) const ELEMENT: &'static str = #element_name;
+                }
+            }
+            _ => TokenStream::new(),
         }
     }
 
@@ -390,19 +412,23 @@ impl ParsedEnum {
     fn emit_parse_fn_body(&self) -> TokenStream {
         match &self.variants {
             ParsedVariants::Elements { items } => self.emit_parse_fn_body_elements(items),
-            ParsedVariants::Attrs { items, default } => {
-                self.emit_parse_fn_body_attrs(items, default)
-            }
+            ParsedVariants::Attrs {
+                items,
+                default,
+                element,
+            } => self.emit_parse_fn_body_attrs(items, default.as_ref(), element.as_ref()),
             ParsedVariants::AttrValues {
                 attr_name,
                 items,
                 none,
                 default,
+                element,
             } => self.emit_parse_fn_body_attr_value(
                 attr_name,
                 items,
                 none.as_ref(),
                 default.as_ref(),
+                element.as_ref(),
             ),
         }
     }
@@ -426,10 +452,23 @@ impl ParsedEnum {
         }
     }
 
+    fn emit_parse_fn_body_preamble(&self, incomplete: bool) -> TokenStream {
+        if incomplete {
+            TokenStream::new()
+        } else {
+            quote! {
+                if element != Self::ELEMENT {
+                    return Err(Error::UnexpectedStart(element, Self::ELEMENT.to_string()));
+                }
+            }
+        }
+    }
+
     fn emit_parse_fn_body_attrs(
         &self,
         items: &[(ParsedVariant, LitStr)],
-        default: &ParsedVariant,
+        default: Option<&ParsedVariant>,
+        element: Option<&LitStr>,
     ) -> TokenStream {
         let mut first_case = true;
 
@@ -456,12 +495,15 @@ impl ParsedEnum {
             }
         }
 
-        let default_case = {
-            let variant = default;
-            let variant_name = &variant.name;
-            let variant_type = &variant.ty;
-            quote! {
-                else {
+        let mut default_case = match default {
+            None => quote! {
+                return Err(Error::InvalidStart(element))
+            },
+            Some(default) => {
+                let variant = default;
+                let variant_name = &variant.name;
+                let variant_type = &variant.ty;
+                quote! {
                     Self::#variant_name(#variant_type::parse_xml_element(
                         reader, element, attributes,
                     )?)
@@ -469,7 +511,18 @@ impl ParsedEnum {
             }
         };
 
+        if !items.is_empty() {
+            default_case = quote! {
+                else {
+                    #default_case
+                }
+            }
+        }
+
+        let preamble = self.emit_parse_fn_body_preamble(element.is_none());
         quote! {
+            #preamble
+
             Ok(
                 #if_cases
 
@@ -484,6 +537,7 @@ impl ParsedEnum {
         items: &[(ParsedVariant, LitStr)],
         none: Option<&ParsedVariant>,
         default: Option<&ParsedVariant>,
+        element: Option<&LitStr>,
     ) -> TokenStream {
         let mut match_cases = TokenStream::new();
         for (variant, attr_value) in items {
@@ -532,7 +586,10 @@ impl ParsedEnum {
             },
         };
 
+        let preamble = self.emit_parse_fn_body_preamble(element.is_none());
         quote! {
+            #preamble
+
             Ok(match attributes.remove_attr::<Option<String>>(&element, #attr_name)? {
                 #none_case
                 Some(value) => match value.as_str() {

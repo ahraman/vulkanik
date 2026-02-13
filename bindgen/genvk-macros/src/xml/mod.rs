@@ -50,16 +50,20 @@ fn parse_struct_data(
         }
     }
 
-    let element = element.unwrap_or_else(|| util::rust_type_to_xml(&name));
     let (fields, content) = parse_struct_fields(data.fields, content_kind)?;
+    let element = if incomplete {
+        None
+    } else {
+        Some(element.unwrap_or_else(|| util::rust_type_to_xml(&name)))
+    };
 
     Ok(ParsedStruct {
         name,
+
         element,
 
         fields,
         content,
-        incomplete,
     })
 }
 
@@ -169,17 +173,29 @@ enum EnumKind {
 
 fn parse_enum(name: Ident, attrs: Vec<Attribute>, data: DataEnum) -> syn::Result<ParsedEnum> {
     let mut kind = EnumKind::Element;
+    let mut element = None;
+    let mut incomplete = false;
     for attr in parse_attrs::<EnumAttr>(&attrs)? {
-        kind = match attr {
-            EnumAttr::Element(_) => EnumKind::Element,
-            EnumAttr::Attr(_, attr_name) => match attr_name {
-                None => EnumKind::Attr,
-                Some(attr_name) => EnumKind::Value(attr_name),
-            },
+        match attr {
+            EnumAttr::Element(_) => kind = EnumKind::Element,
+            EnumAttr::Attr(_, attr_name) => {
+                kind = match attr_name {
+                    None => EnumKind::Attr,
+                    Some(attr_name) => EnumKind::Value(attr_name),
+                }
+            }
+            EnumAttr::Rename(rename) => element = Some(rename.value),
+            EnumAttr::Incomplete(_) => incomplete = true,
         }
     }
 
-    let variants = parse_enum_variants(data.variants, kind)?;
+    let element = if incomplete || !matches!(kind, EnumKind::Attr | EnumKind::Value(_)) {
+        None
+    } else {
+        Some(element.unwrap_or_else(|| util::rust_type_to_xml(&name)))
+    };
+
+    let variants = parse_enum_variants(data.variants, kind, element)?;
 
     Ok(ParsedEnum { name, variants })
 }
@@ -187,6 +203,7 @@ fn parse_enum(name: Ident, attrs: Vec<Attribute>, data: DataEnum) -> syn::Result
 fn parse_enum_variants(
     variants: impl IntoIterator<Item = Variant>,
     kind: EnumKind,
+    element: Option<LitStr>,
 ) -> syn::Result<ParsedVariants> {
     match kind {
         EnumKind::Element => {
@@ -253,14 +270,11 @@ fn parse_enum_variants(
                 }
             }
 
-            let default = default.ok_or_else(|| {
-                syn::Error::new(
-                    Span::call_site(),
-                    "default variant mandatory for this enum kind",
-                )
-            })?;
-
-            Ok(ParsedVariants::Attrs { items, default })
+            Ok(ParsedVariants::Attrs {
+                items,
+                default,
+                element,
+            })
         }
         EnumKind::Value(attr_name) => {
             let mut none = None;
@@ -324,6 +338,7 @@ fn parse_enum_variants(
                 items,
                 none,
                 default,
+                element,
             })
         }
     }

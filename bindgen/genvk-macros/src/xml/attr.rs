@@ -114,6 +114,8 @@ impl Parse for FieldAttr {
 pub enum EnumAttr {
     Element(Ident),
     Attr(Ident, Option<LitStr>),
+    Rename(EqAttr<LitStr>),
+    Incomplete(Ident),
 }
 
 impl Parse for EnumAttr {
@@ -124,6 +126,8 @@ impl Parse for EnumAttr {
         Ok(match name.as_str() {
             "element" => Self::Element(ident),
             "attr" => Self::Attr(ident, parse_parenthesized(input).ok()),
+            "rename" => Self::Rename(EqAttr::parse(ident, input)?),
+            "incomplete" => Self::Incomplete(ident),
             _ => {
                 return Err(syn::Error::new_spanned(ident, "unexpected enum attribute"));
             }
