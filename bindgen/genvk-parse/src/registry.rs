@@ -155,50 +155,19 @@ pub struct Type {
     pub kind: TypeKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Xml)]
+#[xml(attr("category"))]
 pub enum TypeKind {
+    #[xml(none)]
     External(ExternalType),
+    #[xml(value = "include")]
     Include(IncludeType),
+    #[xml(value = "define")]
     Define(DefineType),
+    #[xml(value = "basetype")]
     Base(BaseType),
+    #[xml(value = "bitmask")]
     Bitmask(BitmaskType),
-}
-
-impl TypeKind {
-    pub fn parse_xml_element<R: Read>(
-        reader: &mut EventReader<R>,
-        element: String,
-        mut attributes: HashMap<String, String>,
-    ) -> Result<Self, Error> {
-        Ok(
-            match attributes.remove_attr::<Option<String>>(&element, "category")? {
-                Some(category) => match category.as_str() {
-                    "include" => {
-                        Self::Include(IncludeType::parse_xml_element(reader, element, attributes)?)
-                    }
-                    "define" => {
-                        Self::Define(DefineType::parse_xml_element(reader, element, attributes)?)
-                    }
-                    "basetype" => {
-                        Self::Base(BaseType::parse_xml_element(reader, element, attributes)?)
-                    }
-                    "bitmask" => {
-                        Self::Bitmask(BitmaskType::parse_xml_element(reader, element, attributes)?)
-                    }
-                    _ => {
-                        return Err(Error::InvalidAttr(
-                            element,
-                            "category".to_string(),
-                            category,
-                        ));
-                    }
-                },
-                None => Self::External(ExternalType::parse_xml_element(
-                    reader, element, attributes,
-                )?),
-            },
-        )
-    }
 }
 
 #[derive(Debug, Xml)]
@@ -232,28 +201,13 @@ pub struct BaseType {
     pub content: Vec<Content>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Xml)]
+#[xml(attr)]
 pub enum BitmaskType {
+    #[xml(default)]
     Decl(BitmaskTypeDecl),
+    #[xml(attr = "alias")]
     Alias(BitmaskTypeAlias),
-}
-
-impl BitmaskType {
-    pub fn parse_xml_element<R: Read>(
-        reader: &mut EventReader<R>,
-        element: String,
-        attributes: HashMap<String, String>,
-    ) -> Result<Self, Error> {
-        Ok(if attributes.contains_key("alias") {
-            Self::Alias(BitmaskTypeAlias::parse_xml_element(
-                reader, element, attributes,
-            )?)
-        } else {
-            Self::Decl(BitmaskTypeDecl::parse_xml_element(
-                reader, element, attributes,
-            )?)
-        })
-    }
 }
 
 #[derive(Debug, Xml)]
