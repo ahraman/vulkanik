@@ -98,8 +98,8 @@ impl Parse for FieldAttr {
 
         Ok(match name.as_str() {
             "rename" => Self::Rename(EqAttr::parse(ident, input)?),
-            "items" => Self::Items(ident),
             "text" => Self::Text(ident),
+            "items" => Self::Items(ident),
             "content" => Self::Content(ident),
             "inner" => Self::Inner(ident),
             "ignore" => Self::Ignore(ident),
