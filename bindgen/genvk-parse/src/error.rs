@@ -14,6 +14,8 @@ pub enum Error {
     UnexpectedStart(String, String),
     #[error("unexpected tag end `<{0}>`, expected `<{1}>`")]
     UnexpectedEnd(String, String),
+    #[error("tag start `<{0}>` is invalid")]
+    InvalidStart(String),
     #[error("element `<{0}>` missing required attribute `{1}`")]
     MissingAttr(String, String),
     #[error("element `<{0}>` has invalid attribute `{1} = {2}`")]
