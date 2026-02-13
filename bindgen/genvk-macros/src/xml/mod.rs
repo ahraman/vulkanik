@@ -4,11 +4,12 @@ pub mod util;
 
 use proc_macro2::{Span, TokenStream};
 use syn::{
-    Attribute, Data, DataEnum, DataStruct, DeriveInput, Fields, Ident, Variant, spanned::Spanned,
+    Attribute, Data, DataEnum, DataStruct, DeriveInput, Fields, Ident, LitStr, Type, Variant,
+    spanned::Spanned,
 };
 
 use crate::xml::{
-    attr::{FieldAttr, StructAttr, parse_attrs},
+    attr::{EnumAttr, FieldAttr, StructAttr, VariantAttr, parse_attrs},
     expand::{
         AttrFieldRef, ParsedEnum, ParsedField, ParsedFields, ParsedStruct, ParsedVariant,
         ParsedVariants, StructContent, StructContentKind, StructVariant,
@@ -160,38 +161,190 @@ fn derive_enum(name: Ident, attrs: Vec<Attribute>, data: DataEnum) -> syn::Resul
     Ok(parse_enum(name, attrs, data)?.expand())
 }
 
-fn parse_enum(name: Ident, _attrs: Vec<Attribute>, data: DataEnum) -> syn::Result<ParsedEnum> {
-    let variants = parse_enum_variants(data.variants)?;
+enum EnumKind {
+    Element,
+    Attr,
+    Value(LitStr),
+}
+
+fn parse_enum(name: Ident, attrs: Vec<Attribute>, data: DataEnum) -> syn::Result<ParsedEnum> {
+    let mut kind = EnumKind::Element;
+    for attr in parse_attrs::<EnumAttr>(&attrs)? {
+        kind = match attr {
+            EnumAttr::Element(_) => EnumKind::Element,
+            EnumAttr::Attr(_, attr_name) => match attr_name {
+                None => EnumKind::Attr,
+                Some(attr_name) => EnumKind::Value(attr_name),
+            },
+        }
+    }
+
+    let variants = parse_enum_variants(data.variants, kind)?;
 
     Ok(ParsedEnum { name, variants })
 }
 
-fn parse_enum_variants(variants: impl IntoIterator<Item = Variant>) -> syn::Result<ParsedVariants> {
-    let mut items = Vec::new();
-    for variant in variants.into_iter() {
-        let span = variant.span();
-        let ty = match variant.fields {
-            Fields::Unnamed(fields) => {
-                let mut iter = fields.unnamed.into_iter();
-                let field = iter.next();
-                match (field, iter.next()) {
-                    (None, _) | (Some(_), Some(_)) => {
+fn parse_enum_variants(
+    variants: impl IntoIterator<Item = Variant>,
+    kind: EnumKind,
+) -> syn::Result<ParsedVariants> {
+    match kind {
+        EnumKind::Element => {
+            let mut items = Vec::new();
+            for variant in variants.into_iter() {
+                for _ in parse_attrs::<VariantAttr>(&variant.attrs)? {
+                    return Err(syn::Error::new(
+                        variant.span(),
+                        "attribute not supported on this enum kind",
+                    ));
+                }
+
+                let ty = parse_enum_variant_type(variant.fields)?;
+                items.push(ParsedVariant {
+                    name: variant.ident,
+                    ty,
+                })
+            }
+
+            Ok(ParsedVariants::Elements { items })
+        }
+        EnumKind::Attr => {
+            let mut default = None;
+            let mut items = Vec::new();
+            for variant in variants.into_iter() {
+                let span = variant.span();
+
+                let mut attr_name = None;
+                let mut is_default = false;
+                for attr in parse_attrs::<VariantAttr>(&variant.attrs)? {
+                    match attr {
+                        VariantAttr::Attr(attr) => attr_name = Some(attr.value),
+                        VariantAttr::Default(_) => is_default = true,
+                        VariantAttr::Value(_) | VariantAttr::None(_) => {
+                            return Err(syn::Error::new(
+                                span,
+                                "attribute not supported on this enum kind",
+                            ));
+                        }
+                    }
+                }
+
+                let ty = parse_enum_variant_type(variant.fields)?;
+                let parsed_variant = ParsedVariant {
+                    name: variant.ident,
+                    ty,
+                };
+
+                if is_default {
+                    if default.replace(parsed_variant).is_some() {
                         return Err(syn::Error::new(
                             span,
-                            "variants must have exactly one unnamed field",
+                            "cannot have multiple default variants",
                         ));
                     }
-                    (Some(field), None) => field.ty,
+                } else {
+                    let attr_name = attr_name.ok_or_else(|| {
+                        syn::Error::new(
+                            span,
+                            "all variants need their attribute name specified, or declared as default",
+                        )
+                    })?;
+                    items.push((parsed_variant, attr_name))
                 }
             }
-            _ => return Err(syn::Error::new(span, "named or unit variants unsupported")),
-        };
 
-        items.push(ParsedVariant {
-            name: variant.ident,
-            ty,
-        })
+            let default = default.ok_or_else(|| {
+                syn::Error::new(
+                    Span::call_site(),
+                    "default variant mandatory for this enum kind",
+                )
+            })?;
+
+            Ok(ParsedVariants::Attrs { items, default })
+        }
+        EnumKind::Value(attr_name) => {
+            let mut none = None;
+            let mut default = None;
+            let mut items = Vec::new();
+            for variant in variants.into_iter() {
+                let span = variant.span();
+
+                let mut attr_value = None;
+                let mut is_none = false;
+                let mut is_default = false;
+                for attr in parse_attrs::<VariantAttr>(&variant.attrs)? {
+                    match attr {
+                        VariantAttr::Value(value) => attr_value = Some(value.value),
+                        VariantAttr::None(_) => is_none = true,
+                        VariantAttr::Default(_) => is_default = true,
+                        VariantAttr::Attr(_) => {
+                            return Err(syn::Error::new(
+                                span,
+                                "attribute not supported on this enum kind",
+                            ));
+                        }
+                    }
+                }
+
+                let ty = parse_enum_variant_type(variant.fields)?;
+                let parsed_variant = ParsedVariant {
+                    name: variant.ident,
+                    ty,
+                };
+
+                if is_none && is_default {
+                    return Err(syn::Error::new(
+                        span,
+                        "variant cannot have both `none` and `default` attributes",
+                    ));
+                } else if is_none {
+                    if none.replace(parsed_variant).is_some() {
+                        return Err(syn::Error::new(span, "cannot have multiple none variants"));
+                    }
+                } else if is_default {
+                    if default.replace(parsed_variant).is_some() {
+                        return Err(syn::Error::new(
+                            span,
+                            "cannot have multiple default variants",
+                        ));
+                    }
+                } else {
+                    let attr_value = attr_value.ok_or_else(|| {
+                        syn::Error::new(
+                        span,
+                            "all variants need their attribute name specified, or declared as default",
+                        )
+                    })?;
+                    items.push((parsed_variant, attr_value))
+                }
+            }
+
+            Ok(ParsedVariants::AttrValues {
+                attr_name,
+                items,
+                none,
+                default,
+            })
+        }
     }
+}
 
-    Ok(ParsedVariants { items })
+fn parse_enum_variant_type(fields: Fields) -> syn::Result<Type> {
+    let span = fields.span();
+    match fields {
+        Fields::Unnamed(fields) => {
+            let mut iter = fields.unnamed.into_iter();
+            let field = iter.next();
+            Ok(match (field, iter.next()) {
+                (None, _) | (Some(_), Some(_)) => {
+                    return Err(syn::Error::new(
+                        span,
+                        "variants must have exactly one unnamed field",
+                    ));
+                }
+                (Some(field), None) => field.ty,
+            })
+        }
+        _ => return Err(syn::Error::new(span, "named or unit variants unsupported")),
+    }
 }

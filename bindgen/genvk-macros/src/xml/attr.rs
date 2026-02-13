@@ -4,7 +4,7 @@ use syn::{
     punctuated::Punctuated,
 };
 
-use crate::xml::util;
+use crate::xml::util::{self, parse_parenthesized};
 
 const XML_HELPER_ATTR: &'static str = "xml";
 
@@ -105,6 +105,55 @@ impl Parse for FieldAttr {
             "ignore" => Self::Ignore(ident),
             _ => {
                 return Err(syn::Error::new_spanned(ident, "unexpected field attribute"));
+            }
+        })
+    }
+}
+
+#[allow(dead_code)]
+pub enum EnumAttr {
+    Element(Ident),
+    Attr(Ident, Option<LitStr>),
+}
+
+impl Parse for EnumAttr {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let ident = input.parse::<Ident>()?;
+        let name = ident.to_string();
+
+        Ok(match name.as_str() {
+            "element" => Self::Element(ident),
+            "attr" => Self::Attr(ident, parse_parenthesized(input).ok()),
+            _ => {
+                return Err(syn::Error::new_spanned(ident, "unexpected enum attribute"));
+            }
+        })
+    }
+}
+
+#[allow(dead_code)]
+pub enum VariantAttr {
+    Attr(EqAttr<LitStr>),
+    Value(EqAttr<LitStr>),
+    Default(Ident),
+    None(Ident),
+}
+
+impl Parse for VariantAttr {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let ident = input.parse::<Ident>()?;
+        let name = ident.to_string();
+
+        Ok(match name.as_str() {
+            "attr" => Self::Attr(EqAttr::parse(ident, input)?),
+            "value" => Self::Value(EqAttr::parse(ident, input)?),
+            "default" => Self::Default(ident),
+            "none" => Self::None(ident),
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    ident,
+                    "unexpected variant attribute",
+                ));
             }
         })
     }

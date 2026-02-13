@@ -336,8 +336,20 @@ pub struct ParsedEnum {
     pub variants: ParsedVariants,
 }
 
-pub struct ParsedVariants {
-    pub items: Vec<ParsedVariant>,
+pub enum ParsedVariants {
+    Elements {
+        items: Vec<ParsedVariant>,
+    },
+    Attrs {
+        items: Vec<(ParsedVariant, LitStr)>,
+        default: ParsedVariant,
+    },
+    AttrValues {
+        attr_name: LitStr,
+        items: Vec<(ParsedVariant, LitStr)>,
+        none: Option<ParsedVariant>,
+        default: Option<ParsedVariant>,
+    },
 }
 
 pub struct ParsedVariant {
@@ -376,20 +388,157 @@ impl ParsedEnum {
     }
 
     fn emit_parse_fn_body(&self) -> TokenStream {
-        let mut variants = TokenStream::new();
-        for variant in &self.variants.items {
+        match &self.variants {
+            ParsedVariants::Elements { items } => self.emit_parse_fn_body_elements(items),
+            ParsedVariants::Attrs { items, default } => {
+                self.emit_parse_fn_body_attrs(items, default)
+            }
+            ParsedVariants::AttrValues {
+                attr_name,
+                items,
+                none,
+                default,
+            } => self.emit_parse_fn_body_attr_value(
+                attr_name,
+                items,
+                none.as_ref(),
+                default.as_ref(),
+            ),
+        }
+    }
+
+    fn emit_parse_fn_body_elements(&self, items: &[ParsedVariant]) -> TokenStream {
+        let mut match_cases = TokenStream::new();
+        for variant in items {
             let variant_name = &variant.name;
             let variant_type = &variant.ty;
-            variants = quote! {
-                #variants
+            match_cases = quote! {
+                #match_cases
                 #variant_type::ELEMENT => Self::#variant_name(#variant_type::parse_xml_element(reader, element, attributes)?),
             };
         }
 
         quote! {
             Ok(match element.as_str() {
-                #variants
+                #match_cases
                 _ => return Err(Error::UnknownStart(element)),
+            })
+        }
+    }
+
+    fn emit_parse_fn_body_attrs(
+        &self,
+        items: &[(ParsedVariant, LitStr)],
+        default: &ParsedVariant,
+    ) -> TokenStream {
+        let mut first_case = true;
+
+        let mut if_cases = TokenStream::new();
+        for (variant, attr_name) in items {
+            let variant_name = &variant.name;
+            let variant_type = &variant.ty;
+
+            let if_or_else_if = if first_case {
+                first_case = false;
+                quote! { if }
+            } else {
+                quote! { else if }
+            };
+
+            if_cases = quote! {
+                #if_cases
+
+                #if_or_else_if attributes.contains_key(#attr_name) {
+                    Self::#variant_name(#variant_type::parse_xml_element(
+                        reader, element, attributes,
+                    )?)
+                }
+            }
+        }
+
+        let default_case = {
+            let variant = default;
+            let variant_name = &variant.name;
+            let variant_type = &variant.ty;
+            quote! {
+                else {
+                    Self::#variant_name(#variant_type::parse_xml_element(
+                        reader, element, attributes,
+                    )?)
+                }
+            }
+        };
+
+        quote! {
+            Ok(
+                #if_cases
+
+                #default_case
+            )
+        }
+    }
+
+    fn emit_parse_fn_body_attr_value(
+        &self,
+        attr_name: &LitStr,
+        items: &[(ParsedVariant, LitStr)],
+        none: Option<&ParsedVariant>,
+        default: Option<&ParsedVariant>,
+    ) -> TokenStream {
+        let mut match_cases = TokenStream::new();
+        for (variant, attr_value) in items {
+            let variant_name = &variant.name;
+            let variant_type = &variant.ty;
+            match_cases = quote! {
+                #match_cases
+
+                #attr_value => {
+                    Self::#variant_name(#variant_type::parse_xml_element(reader, element, attributes)?)
+                }
+            }
+        }
+
+        let none_case = match none {
+            Some(variant) => {
+                let variant_name = &variant.name;
+                let variant_type = &variant.ty;
+                quote! {
+                    None => {
+                        Self::#variant_name(#variant_type::parse_xml_element(reader, element, attributes)?)
+                    }
+                }
+            }
+            None => quote! {
+                None => {
+                    return Err(Error::MissingAttr(element, #attr_name.to_string()));
+                }
+            },
+        };
+
+        let default_case = match default {
+            Some(variant) => {
+                let variant_name = &variant.name;
+                let variant_type = &variant.ty;
+                quote! {
+                    _ => {
+                        Self::#variant_name(#variant_type::parse_xml_element(reader, element, attributes)?)
+                    }
+                }
+            }
+            None => quote! {
+                _ => {
+                    return Err(Error::InvalidAttr(element, #attr_name.to_string(), value));
+                }
+            },
+        };
+
+        quote! {
+            Ok(match attributes.remove_attr::<Option<String>>(&element, #attr_name)? {
+                #none_case
+                Some(value) => match value.as_str() {
+                    #match_cases
+                    #default_case
+                }
             })
         }
     }
