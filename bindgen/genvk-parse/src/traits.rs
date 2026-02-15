@@ -8,6 +8,30 @@ pub(super) trait FromAttr: Sized {
     fn from_attr(value: Option<String>) -> Result<Self, Option<String>>;
 }
 
+impl FromAttr for bool {
+    fn from_attr(value: Option<String>) -> Result<Self, Option<String>> {
+        match value {
+            None => Err(None),
+            Some(value) => match value.as_str().parse() {
+                Ok(value) => Ok(value),
+                Err(_) => Err(Some(value)),
+            },
+        }
+    }
+}
+
+impl FromAttr for i32 {
+    fn from_attr(value: Option<String>) -> Result<Self, Option<String>> {
+        match value {
+            None => Err(None),
+            Some(value) => match value.as_str().parse() {
+                Ok(value) => Ok(value),
+                Err(_) => Err(Some(value)),
+            },
+        }
+    }
+}
+
 impl FromAttr for String {
     fn from_attr(value: Option<String>) -> Result<Self, Option<String>> {
         value.ok_or(None)
