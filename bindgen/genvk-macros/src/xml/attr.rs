@@ -1,52 +1,14 @@
 use syn::{
-    Attribute, Ident, LitStr, Token, Type,
+    Attribute, Ident, LitStr, Type,
     parse::{Parse, ParseStream},
-    punctuated::Punctuated,
 };
 
-use crate::xml::util::{self, parse_parenthesized};
+use crate::util::{self, EqAttr};
 
 const XML_HELPER_ATTR: &'static str = "xml";
 
 pub fn parse_attrs<T: Parse>(attrs: &[Attribute]) -> syn::Result<Vec<T>> {
-    let mut buf = Vec::new();
-    for attr in attrs {
-        if attr.path().is_ident(XML_HELPER_ATTR) {
-            let iter = attr
-                .parse_args_with(Punctuated::<T, Token![,]>::parse_terminated)?
-                .into_iter();
-            buf.extend(iter);
-        }
-    }
-
-    Ok(buf)
-}
-
-#[allow(dead_code)]
-pub struct EqAttr<T> {
-    pub ident: Ident,
-    pub value: T,
-    pub eq_token: Token![=],
-}
-
-impl<T: Parse> EqAttr<T> {
-    pub fn parse(ident: Ident, input: ParseStream) -> syn::Result<Self> {
-        if input.is_empty() {
-            Err(syn::Error::new(
-                input.span(),
-                "unexpected end of input, expected `= {value}`",
-            ))
-        } else {
-            let eq_token = input.parse::<Token![=]>()?;
-            let value = input.parse()?;
-
-            Ok(Self {
-                ident,
-                value,
-                eq_token,
-            })
-        }
-    }
+    util::parse_attrs(XML_HELPER_ATTR, attrs)
 }
 
 #[allow(dead_code)]
@@ -125,7 +87,7 @@ impl Parse for EnumAttr {
 
         Ok(match name.as_str() {
             "element" => Self::Element(ident),
-            "attr" => Self::Attr(ident, parse_parenthesized(input).ok()),
+            "attr" => Self::Attr(ident, util::parse_parenthesized(input).ok()),
             "rename" => Self::Rename(EqAttr::parse(ident, input)?),
             "incomplete" => Self::Incomplete(ident),
             _ => {

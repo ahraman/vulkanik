@@ -2,7 +2,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use syn::{Ident, LitStr, Token, Type, punctuated::Punctuated};
 
-use crate::xml::util;
+use crate::util;
 
 pub enum StructVariant {
     Unit,

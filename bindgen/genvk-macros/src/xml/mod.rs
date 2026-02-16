@@ -1,6 +1,5 @@
 pub mod attr;
 pub mod expand;
-pub mod util;
 
 use proc_macro2::{Span, TokenStream};
 use syn::{
@@ -8,13 +7,18 @@ use syn::{
     spanned::Spanned,
 };
 
-use crate::xml::{
+use self::{
     attr::{EnumAttr, FieldAttr, StructAttr, VariantAttr, parse_attrs},
     expand::{
         AttrFieldRef, ParsedEnum, ParsedField, ParsedFields, ParsedStruct, ParsedVariant,
         ParsedVariants, StructContent, StructContentKind, StructVariant,
     },
 };
+
+pub fn rust_type_to_xml(ident: &Ident) -> LitStr {
+    let name = ident.to_string().to_lowercase();
+    LitStr::new(&name, ident.span())
+}
 
 pub fn derive(input: DeriveInput) -> syn::Result<TokenStream> {
     match input.data {
@@ -54,7 +58,7 @@ fn parse_struct_data(
     let element = if incomplete {
         None
     } else {
-        Some(element.unwrap_or_else(|| util::rust_type_to_xml(&name)))
+        Some(element.unwrap_or_else(|| rust_type_to_xml(&name)))
     };
 
     Ok(ParsedStruct {
@@ -116,7 +120,7 @@ fn parse_struct_fields(
 
             if attr_field {
                 let attr_name = attr_name.unwrap_or_else(|| {
-                    util::rust_type_to_xml(
+                    rust_type_to_xml(
                         field
                             .ident
                             .as_ref()
@@ -192,7 +196,7 @@ fn parse_enum(name: Ident, attrs: Vec<Attribute>, data: DataEnum) -> syn::Result
     let element = if incomplete || !matches!(kind, EnumKind::Attr | EnumKind::Value(_)) {
         None
     } else {
-        Some(element.unwrap_or_else(|| util::rust_type_to_xml(&name)))
+        Some(element.unwrap_or_else(|| rust_type_to_xml(&name)))
     };
 
     let variants = parse_enum_variants(data.variants, kind, element)?;
