@@ -356,11 +356,34 @@ impl FromAttr for Len {
     }
 }
 
-#[derive(Debug, FromAttr)]
+#[derive(Debug)]
 pub enum ExternSync {
     False,
     True,
-    Maybe,
+    Maybe(Option<String>),
+    Param(String),
+}
+
+impl FromAttr for ExternSync {
+    fn from_attr(value: Option<String>) -> Result<Self, Option<String>> {
+        match value {
+            None => Err(None),
+            Some(mut value) => Ok(match value.as_str() {
+                "false" => Self::False,
+                "true" => Self::True,
+                _ if value.starts_with("maybe") => {
+                    const LEN: usize = "maybe:".len();
+
+                    Self::Maybe(if value.len() > LEN {
+                        Some(value.split_off(LEN))
+                    } else {
+                        None
+                    })
+                }
+                _ => Self::Param(value),
+            }),
+        }
+    }
 }
 
 #[derive(Debug, FromAttr)]
@@ -394,6 +417,7 @@ pub struct Member {
     pub len: Option<Vec<Len>>,
     #[xml(rename = "altlen")]
     pub alt_len: Option<String>,
+    pub stride: Option<String>,
     #[xml(rename = "objecttype")]
     pub object_type: Option<String>,
 
@@ -526,9 +550,42 @@ pub enum CommandKind {
     Alias(CommandAlias),
 }
 
+#[derive(Debug, FromAttr)]
+pub enum CommandBufferLevel {
+    Primary,
+    Secondary,
+}
+
+#[derive(Debug, FromAttr)]
+pub enum Scope {
+    Inside,
+    Outside,
+    Both,
+}
+
 #[derive(Debug, Xml)]
 #[xml(items(CommandItem), incomplete)]
 pub struct CommandDecl {
+    pub export: Option<Vec<String>>,
+
+    #[xml(rename = "successcodes")]
+    pub success_codes: Option<Vec<String>>,
+    #[xml(rename = "errorcodes")]
+    pub error_codes: Option<Vec<String>>,
+
+    #[xml(rename = "cmdbufferlevel")]
+    pub cmd_buffer_level: Option<Vec<CommandBufferLevel>>,
+    pub queues: Option<Vec<String>>,
+    pub tasks: Option<Vec<String>>,
+    #[xml(rename = "renderpass")]
+    pub render_pass: Option<Scope>,
+    #[xml(rename = "videocoding")]
+    pub video_coding: Option<Scope>,
+    #[xml(rename = "conditionalrendering")]
+    pub conditional_rendering: Option<bool>,
+    #[xml(rename = "allownoqueues")]
+    pub allow_no_queues: Option<bool>,
+
     #[xml(items)]
     pub items: Vec<CommandItem>,
 }
@@ -542,8 +599,12 @@ pub struct CommandAlias {
 
 #[derive(Debug, Xml)]
 pub enum CommandItem {
+    Comment(Comment),
     Proto(Proto),
     Param(Param),
+    Alias(Alias),
+    Description(Description),
+    ImplicitExternSyncParams(ImplicitExternSyncParams),
 }
 
 #[derive(Debug, Xml)]
@@ -556,8 +617,52 @@ pub struct Proto {
 #[derive(Debug, Xml)]
 #[xml(mixed(Content))]
 pub struct Param {
+    pub api: Option<Vec<Api>>,
+    pub optional: Option<Vec<bool>>,
+
+    #[xml(rename = "externsync")]
+    pub extern_sync: Option<ExternSync>,
+    #[xml(rename = "noautovalidity")]
+    pub no_auto_validity: Option<bool>,
+
+    pub len: Option<Vec<Len>>,
+    #[xml(rename = "altlen")]
+    pub alt_len: Option<String>,
+    pub stride: Option<String>,
+    #[xml(rename = "objecttype")]
+    pub object_type: Option<String>,
+    #[xml(rename = "validstructs")]
+    pub valid_structs: Option<Vec<String>>,
+
+    pub selector: Option<String>,
+
     #[xml(content)]
     pub content: Vec<Content>,
+}
+
+#[derive(Debug, Xml)]
+#[xml(text)]
+pub struct Alias {
+    #[xml(text)]
+    pub alias: String,
+}
+
+#[derive(Debug, Xml)]
+#[xml(text)]
+pub struct Description(#[xml(text)] pub String);
+
+#[derive(Debug, Xml)]
+#[xml(items(ImplicitExternSyncParam))]
+pub struct ImplicitExternSyncParams {
+    #[xml(items)]
+    pub items: Vec<ImplicitExternSyncParam>,
+}
+
+#[derive(Debug, Xml)]
+#[xml(rename = "param", text)]
+pub struct ImplicitExternSyncParam {
+    #[xml(text)]
+    pub description: String,
 }
 
 #[derive(Debug, Xml)]
