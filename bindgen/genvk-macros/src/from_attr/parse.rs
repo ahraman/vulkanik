@@ -42,7 +42,8 @@ fn parse_enum_variants(
         }
 
         let name = variant.ident;
-        let name_str = name_str.unwrap_or_else(|| LitStr::new(&name.to_string(), name.span()));
+        let name_str =
+            name_str.unwrap_or_else(|| LitStr::new(&name.to_string().to_lowercase(), name.span()));
         items.push(ParsedVariant { name, name_str });
     }
 
