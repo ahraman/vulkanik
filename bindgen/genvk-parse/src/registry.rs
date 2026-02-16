@@ -1,6 +1,6 @@
 use std::{collections::HashMap, io::Read};
 
-use genvk_macros::Xml;
+use genvk_macros::{FromAttr, Xml};
 use xml::{EventReader, reader::XmlEvent};
 
 use crate::{
@@ -8,48 +8,19 @@ use crate::{
     traits::{FromAttr, IntoMap, MapExt, PushText},
 };
 
-#[derive(Debug)]
+#[derive(Debug, FromAttr)]
 pub enum Api {
     Vulkan,
     VulkanSc,
     VulkanBase,
 }
 
-impl FromAttr for Api {
-    fn from_attr(value: Option<String>) -> Result<Self, Option<String>> {
-        match value {
-            Some(value) => Ok(match value.as_str() {
-                "vulkan" => Self::Vulkan,
-                "vulkansc" => Self::VulkanSc,
-                "vulkanbase" => Self::VulkanBase,
-                _ => return Err(Some(value)),
-            }),
-            None => Err(None),
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, FromAttr)]
 pub enum Deprecation {
     False,
     True,
     Ignored,
     Aliased,
-}
-
-impl FromAttr for Deprecation {
-    fn from_attr(value: Option<String>) -> Result<Self, Option<String>> {
-        match value {
-            Some(value) => Ok(match value.as_str() {
-                "false" => Self::False,
-                "true" => Self::True,
-                "ignored" => Self::Ignored,
-                "aliased" => Self::Aliased,
-                _ => return Err(Some(value)),
-            }),
-            None => Err(None),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -385,31 +356,18 @@ impl FromAttr for Len {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, FromAttr)]
 pub enum ExternSync {
     False,
     True,
     Maybe,
 }
 
-impl FromAttr for ExternSync {
-    fn from_attr(value: Option<String>) -> Result<Self, Option<String>> {
-        match value {
-            None => Err(None),
-            Some(value) => Ok(match value.as_str() {
-                "false" => Self::False,
-                "true" => Self::True,
-                "maybe" => Self::Maybe,
-                _ => return Err(Some(value)),
-            }),
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, FromAttr)]
 pub enum LimitType {
     Min,
     Max,
+    #[attr(rename = "pot")]
     PowerOfTwo,
     Mul,
     Bits,
@@ -418,27 +376,6 @@ pub enum LimitType {
     Struct,
     Exact,
     NoAuto,
-}
-
-impl FromAttr for LimitType {
-    fn from_attr(value: Option<String>) -> Result<Self, Option<String>> {
-        match value {
-            Some(value) => Ok(match value.as_str() {
-                "min" => Self::Min,
-                "max" => Self::Max,
-                "pot" => Self::PowerOfTwo,
-                "mul" => Self::Mul,
-                "bits" => Self::Bits,
-                "bitmask" => Self::Bitmask,
-                "range" => Self::Range,
-                "struct" => Self::Struct,
-                "exact" => Self::Exact,
-                "noauto" => Self::NoAuto,
-                _ => return Err(Some(value)),
-            }),
-            None => Err(None),
-        }
-    }
 }
 
 #[derive(Debug, Xml)]
@@ -472,25 +409,11 @@ pub struct Member {
     pub contents: Vec<Content>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, FromAttr)]
 pub enum EnumsType {
     Constants,
     Bitmask,
     Enum,
-}
-
-impl FromAttr for EnumsType {
-    fn from_attr(value: Option<String>) -> Result<Self, Option<String>> {
-        match value {
-            None => Err(None),
-            Some(value) => Ok(match value.as_str() {
-                "constants" => Self::Constants,
-                "bitmask" => Self::Bitmask,
-                "enum" => Self::Enum,
-                _ => return Err(Some(value)),
-            }),
-        }
-    }
 }
 
 #[derive(Debug, Xml)]
