@@ -34,6 +34,7 @@ pub enum Deprecation {
     False,
     True,
     Ignored,
+    Aliased,
 }
 
 impl FromAttr for Deprecation {
@@ -43,6 +44,7 @@ impl FromAttr for Deprecation {
                 "false" => Self::False,
                 "true" => Self::True,
                 "ignored" => Self::Ignored,
+                "aliased" => Self::Aliased,
                 _ => return Err(Some(value)),
             }),
             None => Err(None),
@@ -131,6 +133,8 @@ pub enum RegistryItem {
     Platforms(Platforms),
     Tags(Tags),
     Types(Types),
+    Enums(Enums),
+    Commands(Commands),
     Formats(Formats),
     SpirvExtensions(SpirvExtensions),
     SpirvCapabilities(SpirvCapabilities),
@@ -466,6 +470,151 @@ pub struct Member {
 
     #[xml(content)]
     pub contents: Vec<Content>,
+}
+
+#[derive(Debug)]
+pub enum EnumsType {
+    Constants,
+    Bitmask,
+    Enum,
+}
+
+impl FromAttr for EnumsType {
+    fn from_attr(value: Option<String>) -> Result<Self, Option<String>> {
+        match value {
+            None => Err(None),
+            Some(value) => Ok(match value.as_str() {
+                "constants" => Self::Constants,
+                "bitmask" => Self::Bitmask,
+                "enum" => Self::Enum,
+                _ => return Err(Some(value)),
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Xml)]
+#[xml(items(EnumsItem))]
+pub struct Enums {
+    pub name: Option<String>,
+    #[xml(rename = "type")]
+    pub r#type: EnumsType,
+    #[xml(rename = "bitwidth")]
+    pub bit_width: Option<i32>,
+    pub comment: Option<String>,
+
+    #[xml(items)]
+    pub items: Vec<EnumsItem>,
+}
+
+#[derive(Debug, Xml)]
+pub enum EnumsItem {
+    Comment(Comment),
+    Enum(Enum),
+    Unused(Unused),
+}
+
+#[derive(Debug, Xml)]
+#[xml(inline)]
+pub struct Enum {
+    pub api: Option<Vec<Api>>,
+    pub deprecated: Option<Deprecation>,
+    pub protect: Option<String>,
+    pub comment: Option<String>,
+
+    #[xml(inner)]
+    pub kind: EnumKind,
+}
+
+#[derive(Debug, Xml)]
+#[xml(attr, incomplete)]
+pub enum EnumKind {
+    #[xml(attr = "value")]
+    Value(EnumValue),
+    #[xml(attr = "bitpos")]
+    BitPos(EnumBitPos),
+    #[xml(attr = "alias")]
+    Alias(EnumAlias),
+}
+
+#[derive(Debug, Xml)]
+#[xml(incomplete)]
+pub struct EnumValue {
+    pub name: String,
+    pub value: String,
+    #[xml(rename = "type")]
+    pub r#type: Option<String>,
+}
+
+#[derive(Debug, Xml)]
+#[xml(incomplete)]
+pub struct EnumBitPos {
+    pub name: String,
+    #[xml(rename = "bitpos")]
+    pub bit_pos: String,
+}
+
+#[derive(Debug, Xml)]
+#[xml(incomplete)]
+pub struct EnumAlias {
+    pub name: String,
+    pub alias: String,
+}
+
+#[derive(Debug, Xml)]
+pub struct Unused {
+    pub start: String,
+    pub end: Option<String>,
+    pub vendor: Option<String>,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Xml)]
+#[xml(items(CommandsItem))]
+pub struct Commands {
+    pub comment: Option<String>,
+
+    #[xml(items)]
+    pub items: Vec<CommandsItem>,
+}
+
+#[derive(Debug, Xml)]
+pub enum CommandsItem {
+    Comment(Comment),
+    Command(Command),
+}
+
+#[derive(Debug, Xml)]
+#[xml(inline)]
+pub struct Command {
+    pub api: Option<Vec<Api>>,
+    pub comment: Option<String>,
+
+    #[xml(inner)]
+    pub kind: CommandKind,
+}
+
+#[derive(Debug, Xml)]
+#[xml(attr, incomplete)]
+pub enum CommandKind {
+    #[xml(default)]
+    Decl(CommandDecl),
+    #[xml(attr = "alias")]
+    Alias(CommandAlias),
+}
+
+#[derive(Debug, Xml)]
+#[xml(items(CommandItem), incomplete)]
+pub struct CommandDecl {
+    #[xml(items)]
+    pub items: Vec<CommandItem>,
+}
+
+#[derive(Debug, Xml)]
+#[xml(incomplete)]
+pub struct CommandAlias {
+    pub name: String,
+    pub alias: String,
 }
 
 #[derive(Debug, Xml)]
