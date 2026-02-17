@@ -24,9 +24,9 @@ pub enum Deprecation {
 }
 
 #[derive(Debug)]
-pub struct Depends(pub String);
+pub struct Conditional(pub String); 
 
-impl FromAttr for Depends {
+impl FromAttr for Conditional {
     fn from_attr(value: Option<String>) -> Result<Self, Option<String>> {
         match value {
             None => Err(None),
@@ -106,6 +106,8 @@ pub enum RegistryItem {
     Types(Types),
     Enums(Enums),
     Commands(Commands),
+    Feature(Feature),
+    Extensions(Extensions),
     Formats(Formats),
     SpirvExtensions(SpirvExtensions),
     SpirvCapabilities(SpirvCapabilities),
@@ -479,7 +481,7 @@ pub enum EnumKind {
     #[xml(attr = "value")]
     Value(EnumValue),
     #[xml(attr = "bitpos")]
-    BitPos(EnumBitPos),
+    Bit(EnumBit),
     #[xml(attr = "alias")]
     Alias(EnumAlias),
 }
@@ -495,7 +497,7 @@ pub struct EnumValue {
 
 #[derive(Debug, Xml)]
 #[xml(incomplete)]
-pub struct EnumBitPos {
+pub struct EnumBit {
     pub name: String,
     #[xml(rename = "bitpos")]
     pub bit_pos: String,
@@ -602,8 +604,6 @@ pub enum CommandItem {
     Comment(Comment),
     Proto(Proto),
     Param(Param),
-    Alias(Alias),
-    Description(Description),
     ImplicitExternSyncParams(ImplicitExternSyncParams),
 }
 
@@ -641,17 +641,6 @@ pub struct Param {
 }
 
 #[derive(Debug, Xml)]
-#[xml(text)]
-pub struct Alias {
-    #[xml(text)]
-    pub alias: String,
-}
-
-#[derive(Debug, Xml)]
-#[xml(text)]
-pub struct Description(#[xml(text)] pub String);
-
-#[derive(Debug, Xml)]
 #[xml(items(ImplicitExternSyncParam))]
 pub struct ImplicitExternSyncParams {
     #[xml(items)]
@@ -663,6 +652,232 @@ pub struct ImplicitExternSyncParams {
 pub struct ImplicitExternSyncParam {
     #[xml(text)]
     pub description: String,
+}
+
+#[derive(Debug, FromAttr)]
+pub enum ApiType {
+    Public,
+    Internal,
+}
+
+#[derive(Debug, Xml)]
+#[xml(items(InterfaceBlock))]
+pub struct Feature {
+    pub name: String,
+    pub number: Option<String>,
+
+    pub api: Vec<Api>,
+    #[xml(rename = "apitype")]
+    pub api_type: Option<ApiType>,
+
+    pub depends: Option<Conditional>,
+    pub protect: Option<String>,
+
+    #[xml(rename = "sortorder")]
+    pub sort_order: Option<String>,
+    pub comment: Option<String>,
+
+    #[xml(items)]
+    pub items: Vec<InterfaceBlock>,
+}
+
+#[derive(Debug, Xml)]
+#[xml(items(Extension))]
+pub struct Extensions {
+    pub comment: Option<String>,
+
+    #[xml(items)]
+    pub items: Vec<Extension>,
+}
+
+#[derive(Debug, FromAttr)]
+pub enum ExtensionType {
+    Instance,
+    Device,
+}
+
+#[derive(Debug)]
+pub enum ApiSupport {
+    Disabled,
+    List(Vec<Api>),
+}
+
+impl FromAttr for ApiSupport {
+    fn from_attr(value: Option<String>) -> Result<Self, Option<String>> {
+        match value {
+            None => Err(None),
+            Some(value) => Ok(match value.as_str() {
+                "disabled" => Self::Disabled,
+                _ => Self::List(Vec::from_attr(Some(value))?),
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Xml)]
+#[xml(items(InterfaceBlock))]
+pub struct Extension {
+    pub name: String,
+    pub number: Option<i32>,
+    #[xml(rename = "type")]
+    pub r#type: Option<ExtensionType>,
+
+    pub supported: Option<ApiSupport>,
+    pub ratified: Option<Vec<Api>>,
+    #[xml(rename = "promotedto")]
+    pub promoted_to: Option<String>,
+    #[xml(rename = "deprecatedby")]
+    pub deprecated_by: Option<String>,
+    #[xml(rename = "obsoletedby")]
+    pub obsoleted_by: Option<String>,
+    pub provisional: Option<bool>,
+    #[xml(rename = "specialuse")]
+    pub special_use: Option<Vec<String>>,
+    #[xml(rename = "nofeatures")]
+    pub no_features: Option<bool>,
+
+    pub depends: Option<Conditional>,
+    pub protect: Option<String>,
+    pub platform: Option<String>,
+
+    #[xml(rename = "sortorder")]
+    pub sort_order: Option<String>,
+    pub author: Option<String>,
+    pub contact: Option<String>,
+    pub comment: Option<String>,
+
+    #[xml(items)]
+    pub items: Vec<InterfaceBlock>,
+}
+
+#[derive(Debug, Xml)]
+pub enum InterfaceBlock {
+    Require(Require),
+    Remove(Remove),
+    Deprecate(Deprecate),
+}
+
+#[derive(Debug, Xml)]
+#[xml(items(InterfaceItem))]
+pub struct Require {
+    pub api: Option<Vec<Api>>,
+    pub profile: Option<String>,
+    pub depends: Option<Conditional>,
+    pub comment: Option<String>,
+
+    #[xml(items)]
+    pub items: Vec<InterfaceItem>,
+}
+
+#[derive(Debug, Xml)]
+#[xml(items(InterfaceItem))]
+pub struct Remove {
+    pub api: Option<Vec<Api>>,
+    pub profile: Option<String>,
+    #[xml(rename = "reasonlink")]
+    pub reason_link: Option<String>,
+    pub comment: Option<String>,
+
+    #[xml(items)]
+    pub items: Vec<InterfaceItem>,
+}
+
+#[derive(Debug, Xml)]
+#[xml(items(InterfaceItem))]
+pub struct Deprecate {
+    pub api: Option<Vec<Api>>,
+    pub profile: Option<String>,
+    #[xml(rename = "explanationlink")]
+    pub explanation_link: Option<String>,
+    pub comment: Option<String>,
+
+    #[xml(items)]
+    pub items: Vec<InterfaceItem>,
+}
+
+#[derive(Debug, Xml)]
+pub enum InterfaceItem {
+    Comment(Comment),
+    Type(InterfaceType),
+    Command(InterfaceCommand),
+    Feature(InterfaceFeature),
+    Enum(InterfaceEnum),
+}
+
+#[derive(Debug, Xml)]
+#[xml(rename = "type")]
+pub struct InterfaceType {
+    pub name: String,
+    pub comment: Option<String>,
+}
+#[derive(Debug, Xml)]
+#[xml(rename = "command")]
+pub struct InterfaceCommand {
+    pub name: String,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Xml)]
+#[xml(rename = "feature")]
+pub struct InterfaceFeature {
+    pub name: String,
+    #[xml(rename = "struct")]
+    pub r#struct: String,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Xml)]
+#[xml(rename = "enum", inline)]
+pub struct InterfaceEnum {
+    pub api: Option<Vec<Api>>,
+    pub deprecated: Option<Deprecation>,
+
+    pub extends: Option<String>,
+    pub protect: Option<String>,
+
+    pub comment: Option<String>,
+
+    #[xml(inner)]
+    pub kind: InterfaceEnumKind,
+}
+
+#[derive(Debug, Xml)]
+#[xml(attr, incomplete)]
+pub enum InterfaceEnumKind {
+    #[xml(default)]
+    Ref(EnumRef),
+    #[xml(attr = "value")]
+    Value(EnumValue),
+    #[xml(attr = "bitpos")]
+    Bit(EnumBit),
+    #[xml(attr = "offset")]
+    Offset(EnumOffset),
+    #[xml(attr = "alias")]
+    Alias(EnumAlias),
+}
+
+#[derive(Debug, FromAttr)]
+pub enum Dir {
+    #[attr(rename = "+")]
+    Pos,
+    #[attr(rename = "-")]
+    Neg,
+}
+
+#[derive(Debug, Xml)]
+#[xml(incomplete)]
+pub struct EnumOffset {
+    pub name: String,
+    pub offset: String,
+    #[xml(rename = "extnumber")]
+    pub ext_number: Option<String>,
+    pub dir: Option<Dir>,
+}
+
+#[derive(Debug, Xml)]
+#[xml(incomplete)]
+pub struct EnumRef {
+    pub name: String,
 }
 
 #[derive(Debug, Xml)]
@@ -897,7 +1112,7 @@ pub struct SyncEquivalentAccess {
 #[xml(items(SyncPipelineStage))]
 pub struct SyncPipeline {
     pub name: String,
-    pub depends: Option<Depends>,
+    pub depends: Option<Conditional>,
 
     #[xml(items)]
     pub stages: Vec<SyncPipelineStage>,
@@ -975,7 +1190,7 @@ pub struct VideoCapabilities {
 pub struct VideoFormat {
     pub name: Option<String>,
     pub extend: Option<String>,
-    pub usage: Option<String>, // more complex parsing required, see registry reference
+    pub usage: Option<Conditional>,
 
     #[xml(items)]
     pub items: Vec<VideoFormatItem>,
@@ -992,7 +1207,7 @@ pub struct VideoRequireCapabilities {
     #[xml(rename = "struct")]
     pub r#struct: String,
     pub member: String,
-    pub value: String, // more complex parsing required, see registry reference
+    pub value: Option<Conditional>,
 }
 
 #[derive(Debug, Xml)]
